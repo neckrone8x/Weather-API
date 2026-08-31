@@ -1,0 +1,1382 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Neckrone8x Weather</title>
+
+
+    <style>
+
+        * {
+            box-sizing: border-box;
+        }
+
+
+        body {
+
+            margin: 0;
+
+            min-height: 100vh;
+
+            display: flex;
+
+            justify-content: center;
+
+            align-items: center;
+
+            font-family: Arial, sans-serif;
+
+            background: linear-gradient(
+                135deg,
+                #0f172a,
+                #1e3a8a
+            );
+
+            color: white;
+
+        }
+
+
+        .weather-card {
+
+            width: 360px;
+
+            padding: 30px;
+
+            border-radius: 25px;
+
+            background: rgba(
+                255,
+                255,
+                255,
+                0.12
+            );
+
+            backdrop-filter: blur(15px);
+
+            box-shadow:
+                0 20px 50px
+                rgba(0, 0, 0, 0.3);
+
+            text-align: center;
+
+        }
+
+
+        .brand {
+
+            font-size: 14px;
+
+            letter-spacing: 2px;
+
+            opacity: 0.7;
+
+            margin-bottom: 20px;
+
+        }
+
+
+        /* ==========================
+           SEARCH BOX
+        ========================== */
+
+        .search-box {
+
+            display: flex;
+
+            flex-direction: row;
+
+            align-items: center;
+
+            gap: 8px;
+
+            margin-bottom: 10px;
+
+            width: 100%;
+
+        }
+
+
+        .search-box input {
+
+            flex: 1;
+
+            width: 100%;
+
+            min-width: 0;
+
+            padding: 11px;
+
+            border: none;
+
+            border-radius: 10px;
+
+            outline: none;
+
+            font-size: 14px;
+
+        }
+
+
+        .search-box button {
+
+            flex-shrink: 0;
+
+            padding: 11px 15px;
+
+            border: none;
+
+            border-radius: 10px;
+
+            cursor: pointer;
+
+            font-weight: bold;
+
+        }
+
+
+        .search-box button:hover {
+
+            opacity: 0.8;
+
+        }
+
+
+        /* ==========================
+           ERROR MESSAGE
+        ========================== */
+
+        .error-message {
+
+            min-height: 20px;
+
+            margin-top: 0;
+
+            margin-bottom: 15px;
+
+            font-size: 13px;
+
+            text-align: center;
+
+            color: #ffb4b4;
+
+        }
+
+
+        /* ==========================
+           CITY
+        ========================== */
+
+        .city {
+
+            font-size: 28px;
+
+            margin: 5px 0;
+
+        }
+
+
+        /* ==========================
+           DATE
+        ========================== */
+
+        .date {
+
+            font-size: 14px;
+
+            opacity: 0.75;
+
+            margin-bottom: 5px;
+
+        }
+
+
+        /* ==========================
+           TIME
+        ========================== */
+
+        .time {
+
+            font-size: 32px;
+
+            font-weight: bold;
+
+            margin-bottom: 20px;
+
+        }
+
+
+        /* ==========================
+           WEATHER ICON
+        ========================== */
+
+        .weather-icon {
+
+            font-size: 65px;
+
+            margin: 10px 0;
+
+        }
+
+
+        /* ==========================
+           TEMPERATURE
+        ========================== */
+
+        .temperature {
+
+            font-size: 55px;
+
+            font-weight: bold;
+
+        }
+
+
+        /* ==========================
+           CONDITION
+        ========================== */
+
+        .condition {
+
+            text-transform: capitalize;
+
+            font-size: 18px;
+
+            margin-bottom: 25px;
+
+        }
+
+
+        /* ==========================
+           WEATHER DETAILS
+        ========================== */
+
+        .details {
+
+            display: grid;
+
+            grid-template-columns: 1fr 1fr;
+
+            gap: 12px;
+
+        }
+
+
+        .detail {
+
+            padding: 14px;
+
+            border-radius: 15px;
+
+            background:
+                rgba(
+                    255,
+                    255,
+                    255,
+                    0.1
+                );
+
+        }
+
+
+        .detail-title {
+
+            font-size: 12px;
+
+            opacity: 0.7;
+
+        }
+
+
+        .detail-value {
+
+            margin-top: 5px;
+
+            font-size: 16px;
+
+            font-weight: bold;
+
+        }
+
+
+        /* ==========================
+           FOOTER
+        ========================== */
+
+        .footer {
+
+            margin-top: 25px;
+
+            font-size: 12px;
+
+            opacity: 0.5;
+
+        }
+
+        .location-button {
+    width: 100%;
+
+    padding: 11px;
+
+    margin-bottom: 15px;
+
+    border: none;
+
+    border-radius: 10px;
+
+    cursor: pointer;
+
+    font-size: 14px;
+
+    font-weight: bold;
+}
+
+.location-button:hover {
+    opacity: 0.8;
+}
+
+    </style>
+
+</head>
+
+
+<body>
+
+
+    <!-- ================================= -->
+    <!-- WEATHER CARD -->
+    <!-- ================================= -->
+
+    <div class="weather-card">
+
+
+        <!-- ================================= -->
+        <!-- BRAND -->
+        <!-- ================================= -->
+
+        <div class="brand">
+
+            NECKRONE8X
+
+        </div>
+
+
+        <!-- ================================= -->
+        <!-- SEARCH -->
+        <!-- ================================= -->
+
+        <div class="search-box">
+
+
+            <input
+                type="text"
+                id="city-input"
+                placeholder="Enter city..."
+                autocomplete="off"
+            >
+
+
+            <button
+                id="search-button"
+            >
+
+                Search
+
+            </button>
+
+
+        </div>
+
+        <button
+    id="location-button"
+    class="location-button"
+>
+    📍 Use My Location
+</button>
+
+        <!-- ================================= -->
+        <!-- ERROR MESSAGE -->
+        <!-- ================================= -->
+
+        <div
+            id="error-message"
+            class="error-message"
+        ></div>
+
+
+        <!-- ================================= -->
+        <!-- CITY -->
+        <!-- ================================= -->
+
+        <div
+            class="city"
+            id="city"
+        >
+
+            Loading...
+
+        </div>
+
+
+        <!-- ================================= -->
+        <!-- DATE -->
+        <!-- ================================= -->
+
+        <div
+            class="date"
+            id="date"
+        >
+
+            Loading date...
+
+        </div>
+
+
+        <!-- ================================= -->
+        <!-- TIME -->
+        <!-- ================================= -->
+
+        <div
+            class="time"
+            id="time"
+        >
+
+            --:--:--
+
+        </div>
+
+
+        <!-- ================================= -->
+        <!-- WEATHER ICON -->
+        <!-- ================================= -->
+
+        <div
+            class="weather-icon"
+            id="weather-icon"
+        >
+
+            🌤️
+
+        </div>
+
+
+        <!-- ================================= -->
+        <!-- TEMPERATURE -->
+        <!-- ================================= -->
+
+        <div
+            class="temperature"
+            id="temperature"
+        >
+
+            --°C
+
+        </div>
+
+
+        <!-- ================================= -->
+        <!-- CONDITION -->
+        <!-- ================================= -->
+
+        <div
+            class="condition"
+            id="condition"
+        >
+
+            Loading weather...
+
+        </div>
+
+
+        <!-- ================================= -->
+        <!-- WEATHER DETAILS -->
+        <!-- ================================= -->
+
+        <div class="details">
+
+
+            <!-- ================================= -->
+            <!-- FEELS LIKE -->
+            <!-- ================================= -->
+
+            <div class="detail">
+
+                <div class="detail-title">
+
+                    FEELS LIKE
+
+                </div>
+
+                <div
+                    class="detail-value"
+                    id="feels-like"
+                >
+
+                    --°C
+
+                </div>
+
+            </div>
+
+
+            <!-- ================================= -->
+            <!-- HUMIDITY -->
+            <!-- ================================= -->
+
+            <div class="detail">
+
+                <div class="detail-title">
+
+                    HUMIDITY
+
+                </div>
+
+                <div
+                    class="detail-value"
+                    id="humidity"
+                >
+
+                    --%
+
+                </div>
+
+            </div>
+
+
+            <!-- ================================= -->
+            <!-- WIND -->
+            <!-- ================================= -->
+
+            <div class="detail">
+
+                <div class="detail-title">
+
+                    WIND
+
+                </div>
+
+                <div
+                    class="detail-value"
+                    id="wind"
+                >
+
+                    -- m/s
+
+                </div>
+
+            </div>
+
+
+            <!-- ================================= -->
+            <!-- CLOUDS -->
+            <!-- ================================= -->
+
+            <div class="detail">
+
+                <div class="detail-title">
+
+                    CLOUDS
+
+                </div>
+
+                <div
+                    class="detail-value"
+                    id="clouds"
+                >
+
+                    --%
+
+                </div>
+
+            </div>
+
+
+            <!-- ================================= -->
+            <!-- SUNRISE -->
+            <!-- ================================= -->
+
+            <div class="detail">
+
+                <div class="detail-title">
+
+                    🌅 SUNRISE
+
+                </div>
+
+                <div
+                    class="detail-value"
+                    id="sunrise"
+                >
+
+                    --:--
+
+                </div>
+
+            </div>
+
+
+            <!-- ================================= -->
+            <!-- SUNSET -->
+            <!-- ================================= -->
+
+            <div class="detail">
+
+                <div class="detail-title">
+
+                    🌇 SUNSET
+
+                </div>
+
+                <div
+                    class="detail-value"
+                    id="sunset"
+                >
+
+                    --:--
+
+                </div>
+
+            </div>
+
+
+        </div>
+
+
+        <!-- ================================= -->
+        <!-- FOOTER -->
+        <!-- ================================= -->
+
+        <div class="footer">
+
+            Powered by A Neckrone8x Production
+
+        </div>
+
+
+    </div>
+
+
+
+    <script>
+
+
+    // =================================
+    // LIVE DATE AND TIME
+    // =================================
+
+    function updateClock() {
+
+        const now = new Date();
+
+        const date =
+            now.toLocaleDateString(
+                "en-KE",
+                {
+                    weekday: "long",
+                    year: "numeric",
+                    month: "long",
+                    day: "numeric"
+                }
+            );
+
+        const time =
+            now.toLocaleTimeString(
+                "en-KE",
+                {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                    hour12: false
+                }
+            );
+
+        document.getElementById(
+            "date"
+        ).textContent = date;
+
+        document.getElementById(
+            "time"
+        ).textContent = time;
+
+    }
+
+
+    // Start clock
+
+    updateClock();
+
+
+    // Update every second
+
+    setInterval(
+        updateClock,
+        1000
+    );
+
+
+
+    // =================================
+    // DISPLAY WEATHER DATA
+    // =================================
+
+    function displayWeather(data) {
+
+
+        console.log(
+            "WEATHER DATA:",
+            data
+        );
+
+
+        // =================================
+        // CHECK FOR ERROR
+        // =================================
+
+        if (data.cod !== 200) {
+
+            document.getElementById(
+                "error-message"
+            ).textContent =
+                "City not found. Please try again.";
+
+            document.getElementById(
+                "condition"
+            ).textContent =
+                "Weather unavailable.";
+
+            return;
+
+        }
+
+
+        // Clear error
+
+        document.getElementById(
+            "error-message"
+        ).textContent = "";
+
+
+        // =================================
+        // WEATHER INFORMATION
+        // =================================
+
+        const temperature =
+            data.main.temp;
+
+
+        const feelsLike =
+            data.main.feels_like;
+
+
+        const humidity =
+            data.main.humidity;
+
+
+        const wind =
+            data.wind.speed;
+
+
+        const clouds =
+            data.clouds.all;
+
+
+        const condition =
+            data.weather[0].description;
+
+
+        const weatherMain =
+            data.weather[0].main;
+
+
+        const cityName =
+            data.name;
+
+
+
+        // =================================
+        // SUN INFORMATION
+        // =================================
+
+        const sunrise =
+            data.sys.sunrise;
+
+
+        const sunset =
+            data.sys.sunset;
+
+
+        const timezone =
+            data.timezone;
+
+
+
+        // =================================
+        // DISPLAY CITY
+        // =================================
+
+        document.getElementById(
+            "city"
+        ).textContent =
+            cityName;
+
+
+
+        // =================================
+        // DISPLAY TEMPERATURE
+        // =================================
+
+        document.getElementById(
+            "temperature"
+        ).textContent =
+            `${temperature.toFixed(1)}°C`;
+
+
+
+        // =================================
+        // DISPLAY FEELS LIKE
+        // =================================
+
+        document.getElementById(
+            "feels-like"
+        ).textContent =
+            `${feelsLike.toFixed(1)}°C`;
+
+
+
+        // =================================
+        // DISPLAY HUMIDITY
+        // =================================
+
+        document.getElementById(
+            "humidity"
+        ).textContent =
+            `${humidity}%`;
+
+
+
+        // =================================
+        // DISPLAY WIND
+        // =================================
+
+        document.getElementById(
+            "wind"
+        ).textContent =
+            `${wind.toFixed(1)} m/s`;
+
+
+
+        // =================================
+        // DISPLAY CLOUDS
+        // =================================
+
+        document.getElementById(
+            "clouds"
+        ).textContent =
+            `${clouds}%`;
+
+
+
+        // =================================
+        // DISPLAY CONDITION
+        // =================================
+
+        document.getElementById(
+            "condition"
+        ).textContent =
+            condition;
+
+
+
+        // =================================
+        // SUNRISE / SUNSET
+        // =================================
+
+        function formatTime(
+            timestamp
+        ) {
+
+            const date =
+                new Date(
+                    (timestamp + timezone)
+                    * 1000
+                );
+
+
+            return date
+                .toISOString()
+                .substring(
+                    11,
+                    16
+                );
+
+        }
+
+
+        document.getElementById(
+            "sunrise"
+        ).textContent =
+            formatTime(
+                sunrise
+            );
+
+
+        document.getElementById(
+            "sunset"
+        ).textContent =
+            formatTime(
+                sunset
+            );
+
+
+
+        // =================================
+        // WEATHER ICON
+        // =================================
+
+        let icon = "🌤️";
+
+
+        if (
+            weatherMain === "Clear"
+        ) {
+
+            icon = "☀️";
+
+        }
+
+        else if (
+            weatherMain === "Clouds"
+        ) {
+
+            icon = "☁️";
+
+        }
+
+        else if (
+            weatherMain === "Rain"
+        ) {
+
+            icon = "🌧️";
+
+        }
+
+        else if (
+            weatherMain === "Drizzle"
+        ) {
+
+            icon = "🌦️";
+
+        }
+
+        else if (
+            weatherMain === "Thunderstorm"
+        ) {
+
+            icon = "⛈️";
+
+        }
+
+        else if (
+
+            weatherMain === "Mist" ||
+
+            weatherMain === "Fog" ||
+
+            weatherMain === "Haze"
+
+        ) {
+
+            icon = "🌫️";
+
+        }
+
+
+        document.getElementById(
+            "weather-icon"
+        ).textContent =
+            icon;
+
+    }
+
+
+
+    // =================================
+    // GET WEATHER BY CITY
+    // =================================
+
+    function getWeather(city) {
+
+
+        document.getElementById(
+            "error-message"
+        ).textContent = "";
+
+
+        document.getElementById(
+            "condition"
+        ).textContent =
+            "Loading weather...";
+
+
+        fetch(
+            `/weather?city=${encodeURIComponent(city)}`
+        )
+
+
+        .then(
+            response =>
+                response.json()
+        )
+
+
+        .then(
+            data => {
+
+                displayWeather(data);
+
+            }
+
+        )
+
+
+        .catch(
+            error => {
+
+                console.error(
+                    "Weather error:",
+                    error
+                );
+
+
+                document.getElementById(
+                    "condition"
+                ).textContent =
+                    "Unable to load weather.";
+
+            }
+        );
+
+    }
+
+
+
+    // =================================
+    // GET WEATHER BY GPS LOCATION
+    // =================================
+
+    function getWeatherByLocation(
+        latitude,
+        longitude
+    ) {
+
+
+        document.getElementById(
+            "error-message"
+        ).textContent = "";
+
+
+        document.getElementById(
+            "condition"
+        ).textContent =
+            "Loading your local weather...";
+
+
+        fetch(
+            `/weather?lat=${latitude}&lon=${longitude}`
+        )
+
+
+        .then(
+            response =>
+                response.json()
+        )
+
+
+        .then(
+            data => {
+
+                console.log(
+                    "LOCATION WEATHER:",
+                    data
+                );
+
+
+                displayWeather(data);
+
+            }
+
+        )
+
+
+        .catch(
+            error => {
+
+                console.error(
+                    "Location weather error:",
+                    error
+                );
+
+
+                document.getElementById(
+                    "condition"
+                ).textContent =
+                    "Unable to load local weather.";
+
+            }
+        );
+
+    }
+
+
+
+    // =================================
+    // SEARCH BUTTON
+    // =================================
+
+    document.getElementById(
+        "search-button"
+    ).addEventListener(
+        "click",
+        function () {
+
+
+            const input =
+                document.getElementById(
+                    "city-input"
+                );
+
+
+            const city =
+                input.value.trim();
+
+
+            if (city === "") {
+
+
+                document.getElementById(
+                    "error-message"
+                ).textContent =
+                    "Please enter a city.";
+
+
+                input.focus();
+
+
+                return;
+
+            }
+
+
+            getWeather(city);
+
+        }
+    );
+
+
+
+    // =================================
+    // ENTER KEY
+    // =================================
+
+    document.getElementById(
+        "city-input"
+    ).addEventListener(
+        "keydown",
+        function (event) {
+
+
+            if (
+                event.key === "Enter"
+            ) {
+
+                document.getElementById(
+                    "search-button"
+                ).click();
+
+            }
+
+        }
+    );
+
+
+
+    // =================================
+    // USE MY LOCATION
+    // =================================
+
+    document.getElementById(
+        "location-button"
+    ).addEventListener(
+        "click",
+        function () {
+
+
+            const button =
+                document.getElementById(
+                    "location-button"
+                );
+
+
+            button.textContent =
+                "📍 Finding location...";
+
+
+            document.getElementById(
+                "error-message"
+            ).textContent = "";
+
+
+            // =================================
+            // CHECK GEOLOCATION SUPPORT
+            // =================================
+
+            if (
+                !navigator.geolocation
+            ) {
+
+
+                document.getElementById(
+                    "error-message"
+                ).textContent =
+                    "Geolocation is not supported by your browser.";
+
+
+                button.textContent =
+                    "📍 Use My Location";
+
+
+                return;
+
+            }
+
+
+
+            // =================================
+            // GET GPS POSITION
+            // =================================
+
+            navigator.geolocation.getCurrentPosition(
+
+
+                function (position) {
+
+
+                    const latitude =
+                        position.coords.latitude;
+
+
+                    const longitude =
+                        position.coords.longitude;
+
+
+                    console.log(
+                        "Latitude:",
+                        latitude
+                    );
+
+
+                    console.log(
+                        "Longitude:",
+                        longitude
+                    );
+
+
+                    // =================================
+                    // GET WEATHER USING GPS
+                    // =================================
+
+                    getWeatherByLocation(
+                        latitude,
+                        longitude
+                    );
+
+
+                    button.textContent =
+                        "📍 Use My Location";
+
+                },
+
+
+                function (error) {
+
+
+                    console.error(
+                        "Location error:",
+                        error
+                    );
+
+
+                    let message =
+                        "Unable to access your location.";
+
+
+                    if (
+                        error.code ===
+                        error.PERMISSION_DENIED
+                    ) {
+
+                        message =
+                            "Location permission was denied.";
+
+                    }
+
+                    else if (
+                        error.code ===
+                        error.POSITION_UNAVAILABLE
+                    ) {
+
+                        message =
+                            "Your location is unavailable.";
+
+                    }
+
+                    else if (
+                        error.code ===
+                        error.TIMEOUT
+                    ) {
+
+                        message =
+                            "Location request timed out.";
+
+                    }
+
+
+                    document.getElementById(
+                        "error-message"
+                    ).textContent =
+                        message;
+
+
+                    button.textContent =
+                        "📍 Use My Location";
+
+                }
+
+            );
+
+        }
+    );
+
+
+
+    // =================================
+    // DEFAULT CITY
+    // =================================
+
+    getWeather("Kisumu");
+
+
+</script>
+
+
+</body>
+
+</html>
