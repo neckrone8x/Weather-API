@@ -1535,42 +1535,90 @@ setInterval(
 
 
     // =================================
-    // WEATHER ICON
-    // =================================
+// WEATHER ICON
+// =================================
 
-    function getWeatherIcon(weatherMain) {
+function getWeatherIcon(weatherId) {
 
-        if (weatherMain === "Clear") {
-            return "☀️";
-        }
-
-        if (weatherMain === "Clouds") {
-            return "☁️";
-        }
-
-        if (weatherMain === "Rain") {
-            return "🌧️";
-        }
-
-        if (weatherMain === "Drizzle") {
-            return "🌦️";
-        }
-
-        if (weatherMain === "Thunderstorm") {
-            return "⛈️";
-        }
-
-        if (
-            weatherMain === "Mist" ||
-            weatherMain === "Fog" ||
-            weatherMain === "Haze"
-        ) {
-            return "🌫️";
-        }
-
-        return "🌤️";
-
+    // CLEAR SKY
+    if (weatherId === 800) {
+        return "☀️";
     }
+
+
+    // FEW CLOUDS
+    if (weatherId === 801) {
+        return "🌤️";
+    }
+
+
+    // SCATTERED CLOUDS
+    if (weatherId === 802) {
+        return "⛅";
+    }
+
+
+    // BROKEN CLOUDS
+    if (weatherId === 803) {
+        return "🌥️";
+    }
+
+
+    // OVERCAST CLOUDS
+    if (weatherId === 804) {
+        return "☁️";
+    }
+
+
+    // DRIZZLE
+    if (
+        weatherId >= 300 &&
+        weatherId <= 321
+    ) {
+        return "🌦️";
+    }
+
+
+    // RAIN
+    if (
+        weatherId >= 500 &&
+        weatherId <= 531
+    ) {
+        return "🌧️";
+    }
+
+
+    // THUNDERSTORM
+    if (
+        weatherId >= 200 &&
+        weatherId <= 232
+    ) {
+        return "⛈️";
+    }
+
+
+    // SNOW
+    if (
+        weatherId >= 600 &&
+        weatherId <= 622
+    ) {
+        return "❄️";
+    }
+
+
+    // ATMOSPHERE
+    if (
+        weatherId >= 701 &&
+        weatherId <= 781
+    ) {
+        return "🌫️";
+    }
+
+
+    // UNKNOWN
+    return "🌤️";
+
+}
 
 
     // =================================
@@ -1779,6 +1827,9 @@ setInterval(
         const weatherMain =
             data.weather[0].main;
 
+        const weatherId =
+            data.weather[0].id;
+
 
         // =================================
         // LOCATION INFORMATION
@@ -1938,13 +1989,12 @@ updateTheme(
         // DISPLAY ICON
         // =================================
 
-        document.getElementById(
-            "weather-icon"
-        ).textContent =
+       document.getElementById(
+               "weather-icon"
+          ).textContent =
             getWeatherIcon(
-                weatherMain
-            );
-
+             weatherId
+       );
     }
 
 
@@ -2221,213 +2271,244 @@ const dates =
 
 
                 // =================================
-                // CONDITION COUNTERS
-                // =================================
+// DETERMINE MOST REPRESENTATIVE
+// WEATHER CONDITION
+// =================================
 
-                let clear = 0;
+let representativeWeather =
+    entries[0].weather[0];
 
-                let clouds = 0;
 
-                let rain = 0;
+// =================================
+// FIND MOST IMPORTANT CONDITION
+// =================================
 
-                let drizzle = 0;
+entries.forEach(
+    item => {
 
-                let storm = 0;
+        const weather =
+            item.weather[0];
 
-                let fog = 0;
+        const currentId =
+            representativeWeather.id;
 
+        const newId =
+            weather.id;
 
-                entries.forEach(
-                    item => {
 
-                        const condition =
-                            item.weather[0].main;
+        // =================================
+        // PRIORITY ORDER
+        // =================================
 
+        // Thunderstorm
+        if (
+            newId >= 200 &&
+            newId <= 232
+        ) {
 
-                        if (
-                            condition ===
-                            "Clear"
-                        ) {
+            representativeWeather =
+                weather;
 
-                            clear++;
+        }
 
-                        }
+        // Rain
+        else if (
+            newId >= 500 &&
+            newId <= 531 &&
+            !(
+                currentId >= 200 &&
+                currentId <= 232
+            )
+        ) {
 
-                        else if (
-                            condition ===
-                            "Clouds"
-                        ) {
+            representativeWeather =
+                weather;
 
-                            clouds++;
+        }
 
-                        }
+        // Drizzle
+        else if (
+            newId >= 300 &&
+            newId <= 321 &&
+            !(
+                currentId >= 200 &&
+                currentId <= 531
+            )
+        ) {
 
-                        else if (
-                            condition ===
-                            "Rain"
-                        ) {
+            representativeWeather =
+                weather;
 
-                            rain++;
+        }
 
-                        }
+        // Snow
+        else if (
+            newId >= 600 &&
+            newId <= 622 &&
+            !(
+                currentId >= 200 &&
+                currentId <= 531
+            )
+        ) {
 
-                        else if (
-                            condition ===
-                            "Drizzle"
-                        ) {
+            representativeWeather =
+                weather;
 
-                            drizzle++;
+        }
 
-                        }
+        // Atmosphere
+        else if (
+            newId >= 701 &&
+            newId <= 781 &&
+            currentId === 800
+        ) {
 
-                        else if (
-                            condition ===
-                            "Thunderstorm"
-                        ) {
+            representativeWeather =
+                weather;
 
-                            storm++;
+        }
 
-                        }
+        // Clear
+        else if (
+            newId === 800 &&
+            currentId !== 800
+        ) {
 
-                        else if (
-                            condition ===
-                            "Mist" ||
-                            condition ===
-                            "Fog" ||
-                            condition ===
-                            "Haze"
-                        ) {
+            representativeWeather =
+                weather;
 
-                            fog++;
+        }
 
-                        }
+    }
+);
 
-                    }
-                );
 
+// =================================
+// WEATHER ID
+// =================================
 
-                // =================================
-                // TOTAL
-                // =================================
+const weatherId =
+    representativeWeather.id;
 
-                const total =
-                    entries.length;
 
+// =================================
+// ICON
+// =================================
 
-                // =================================
-                // DEFAULT CONDITION
-                // =================================
+const icon =
+    getWeatherIcon(
+        weatherId
+    );
 
-                let icon =
-                    "☁️";
 
-                let conditionText =
-                    "Cloudy";
+// =================================
+// CONDITION TEXT
+// =================================
 
+let conditionText;
 
-                // =================================
-                // STORM
-                // =================================
 
-                if (
-                    storm >= 1
-                ) {
+if (
+    weatherId === 800
+) {
 
-                    icon =
-                        "⛈️";
+    conditionText =
+        "Sunny";
 
-                    conditionText =
-                        "Storm";
+}
 
-                }
+else if (
+    weatherId === 801
+) {
 
+    conditionText =
+        "Partly cloudy";
 
-                // =================================
-                // RAIN
-                // =================================
+}
 
-                else if (
-                    rain >= 2
-                ) {
+else if (
+    weatherId === 802
+) {
 
-                    icon =
-                        "🌧️";
+    conditionText =
+        "Scattered clouds";
 
-                    conditionText =
-                        "Rain";
+}
 
-                }
+else if (
+    weatherId === 803
+) {
 
+    conditionText =
+        "Broken clouds";
 
-                // =================================
-                // DRIZZLE
-                // =================================
+}
 
-                else if (
-                    drizzle >= 2
-                ) {
+else if (
+    weatherId === 804
+) {
 
-                    icon =
-                        "🌦️";
+    conditionText =
+        "Overcast";
 
-                    conditionText =
-                        "Drizzle";
+}
 
-                }
+else if (
+    weatherId >= 200 &&
+    weatherId <= 232
+) {
 
+    conditionText =
+        "Thunderstorm";
 
-                // =================================
-                // SUNNY
-                // =================================
+}
 
-                else if (
-                    clear >= total * 0.6
-                ) {
+else if (
+    weatherId >= 300 &&
+    weatherId <= 321
+) {
 
-                    icon =
-                        "☀️";
+    conditionText =
+        "Drizzle";
 
-                    conditionText =
-                        "Sunny";
+}
 
-                }
+else if (
+    weatherId >= 500 &&
+    weatherId <= 531
+) {
 
+    conditionText =
+        "Rain";
 
-                // =================================
-                // PARTLY CLOUDY
-                // =================================
+}
 
-                else if (
-                    clear >= 1 &&
-                    clouds >= 1 &&
-                    clear + clouds >=
-                        total * 0.7
-                ) {
+else if (
+    weatherId >= 600 &&
+    weatherId <= 622
+) {
 
-                    icon =
-                        "🌤️";
+    conditionText =
+        "Snow";
 
-                    conditionText =
-                        "Partly cloudy";
+}
 
-                }
+else if (
+    weatherId >= 701 &&
+    weatherId <= 781
+) {
 
+    conditionText =
+        "Foggy";
 
-                // =================================
-                // FOG
-                // =================================
+}
 
-                else if (
-                    fog >= total * 0.5
-                ) {
+else {
 
-                    icon =
-                        "🌫️";
+    conditionText =
+        representativeWeather.description;
 
-                    conditionText =
-                        "Foggy";
-
-                }
+}
 
 
                 // =================================
