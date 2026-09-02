@@ -112,9 +112,7 @@ def get_coordinates(city):
         params=params
     )
 
-
     return response.json()
-
 
 # =================================
 # SEARCH LOCATIONS
