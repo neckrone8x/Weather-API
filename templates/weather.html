@@ -2692,180 +2692,163 @@ else {
 
     }
 
+    // =================================
+// GPS CURRENT WEATHER
+// =================================
+
+function getWeatherByLocation(
+    latitude,
+    longitude
+) {
+
+    document.getElementById(
+        "error-message"
+    ).textContent = "";
+
+
+    document.getElementById(
+        "city"
+    ).textContent =
+        "Loading...";
+
+
+    document.getElementById(
+        "condition"
+    ).textContent =
+        "Loading your local weather...";
+
 
     // =================================
-    // GPS CURRENT WEATHER
+    // REQUEST CURRENT WEATHER
     // =================================
 
-    function getWeatherByLocation(
-        latitude,
-        longitude
-    ) {
+    fetch(
+        `/weather?lat=${latitude}&lon=${longitude}`
+    )
 
-        document.getElementById(
-            "error-message"
-        ).textContent = "";
+    .then(
+        response => {
 
+            if (!response.ok) {
 
-        document.getElementById(
-            "city"
-        ).textContent =
-            "Loading...";
-
-
-        document.getElementById(
-            "condition"
-        ).textContent =
-            "Loading your local weather...";
-
-
-        fetch(
-            `/weather?lat=${latitude}&lon=${longitude}`
-        )
-
-        .then(
-            response => {
-
-                if (!response.ok) {
-
-                    throw new Error(
-                        "Location weather request failed"
-                    );
-
-                }
-
-                return response.json();
-
-            }
-        )
-
-        .then(
-            data => {
-
-
-
-                displayWeather(
-                    data
-                );
-
-
-                // =================================
-                // GPS FORECAST
-                // =================================
-
-                getForecastByLocation(
-                    latitude,
-                    longitude
+                throw new Error(
+                    `Location weather request failed: ${response.status}`
                 );
 
             }
-        )
 
-        .catch(
-            error => {
+            return response.json();
 
-                console.error(
-                    "Location weather error:",
-                    error
-                );
+        }
+    )
 
+    .then(
+        data => {
 
-                document.getElementById(
-                    "condition"
-                ).textContent =
-                    "Unable to load local weather.";
-
-            }
-        );
-
-    }
-
-
-    // =================================
-    // GPS FORECAST
-    // =================================
-
-    function getForecastByLocation(
-        latitude,
-        longitude
-    ) {
-
-        const forecastContainer =
-            document.getElementById(
-                "forecast"
+            displayWeather(
+                data
             );
 
 
-        forecastContainer.innerHTML =
-            "Loading forecast...";
+            // =================================
+            // LOAD GPS FORECAST
+            // =================================
+
+            getForecastByLocation(
+                latitude,
+                longitude
+            );
+
+        }
+    )
+
+    .catch(
+        error => {
+
+            console.error(
+                "Location weather error:",
+                error
+            );
 
 
-        /*
-         * The current Flask /forecast route
-         * currently accepts a city.
-         *
-         * We therefore use the city returned
-         * by the GPS weather request.
-         *
-         * This is temporary.
-         */
+            document.getElementById(
+                "condition"
+            ).textContent =
+                "Unable to load local weather.";
 
-        fetch(
-            `/weather?lat=${latitude}&lon=${longitude}`
-        )
+        }
+    );
 
-        .then(
-            response => {
+}
 
-                if (!response.ok) {
+    // =================================
+// GPS FORECAST
+// =================================
 
-                    throw new Error(
-                        "GPS location request failed"
-                    );
+function getForecastByLocation(
+    latitude,
+    longitude
+) {
 
-                }
-
-                return response.json();
-
-            }
-        )
-
-        .then(
-            data => {
-
-                if (!data.name) {
-
-                    forecastContainer.innerHTML =
-                        "Forecast unavailable.";
-
-                    return;
-
-                }
-
-
-                getForecast(
-                    data.name
-                );
-
-            }
-        )
-
-        .catch(
-            error => {
-
-                console.error(
-                    "GPS forecast error:",
-                    error
-                );
-
-
-                forecastContainer.innerHTML =
-                    "Unable to load forecast.";
-
-            }
+    const forecastContainer =
+        document.getElementById(
+            "forecast"
         );
 
-    }
+
+    forecastContainer.innerHTML =
+        "Loading forecast...";
+
+
+    // =================================
+    // REQUEST GPS FORECAST
+    // =================================
+
+    fetch(
+        `/forecast?lat=${latitude}&lon=${longitude}`
+    )
+
+    .then(
+        response => {
+
+            if (!response.ok) {
+
+                throw new Error(
+                    `GPS forecast request failed: ${response.status}`
+                );
+
+            }
+
+            return response.json();
+
+        }
+    )
+
+    .then(
+        data => {
+
+            renderForecast(
+                data
+            );
+
+        }
+    )
+
+    .catch(
+        error => {
+
+            console.error(
+                "GPS forecast error:",
+                error
+            );
+
+            forecastContainer.innerHTML =
+                "Unable to load forecast.";
+
+        }
+    );
+
+}
 
 
    // =================================
