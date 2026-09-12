@@ -779,13 +779,15 @@
     margin: 0 auto;
     border-radius: 50%;
     position: relative;
-    cursor: crosshair;
+    cursor: grab;
     box-shadow:
         0 0 60px rgba(56, 189, 248, 0.35),
         0 0 120px rgba(56, 189, 248, 0.15),
         inset 0 0 40px rgba(0, 0, 0, 0.4);
     animation: earthGlow 6s ease-in-out infinite;
     overflow: hidden;
+    touch-action: none;
+    user-select: none;
 }
 
 #earth-container canvas {
@@ -1000,7 +1002,7 @@
 <section class="earth-section">
     <div class="forecast-title">OUR PLANET</div>
     <div id="earth-container"></div>
-    <div class="earth-caption">Click any point on Earth to load its weather</div>
+    <div class="earth-caption">Drag to rotate • Scroll or pinch to zoom • Click to load weather</div>
 </section>
 
         </div>
@@ -1999,7 +2001,12 @@ function initEarth() {
     earthRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     earthRenderer.setSize(size, size);
     earthRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    container.appendChild(earthRenderer.domElement);
+
+    const canvas = earthRenderer.domElement;
+    canvas.style.touchAction = "none";
+    canvas.style.userSelect = "none";
+    canvas.style.cursor = "grab";
+    container.appendChild(canvas);
 
     // Sphere geometry
     const geometry = new THREE.SphereGeometry(1, 64, 64);
@@ -2010,7 +2017,7 @@ function initEarth() {
         "https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg"
     );
 
-    // Custom shader material for day/night terminator
+    // Day/night shader
     earthMaterial = new THREE.ShaderMaterial({
         uniforms: {
             earthMap: { value: earthTexture },
@@ -2044,13 +2051,113 @@ function initEarth() {
     earthMesh = new THREE.Mesh(geometry, earthMaterial);
     earthScene.add(earthMesh);
 
-    // Slight tilt for realism
-    earthMesh.rotation.z = 23.44 * Math.PI / 180;
+    // NOTE: no mesh tilt — markers and click math now land exactly where they should.
 
-    // Click listener
-    earthRenderer.domElement.addEventListener("click", onGlobeClick);
+    /* ---------- Interaction state ---------- */
+    const DRAG_SENSITIVITY = 0.006;
+    const MIN_ZOOM = 1.5;
+    const MAX_ZOOM = 5.0;
 
-    // Animation loop
+    let activePointers = new Map();
+    let dragPointerId = null;
+    let isDragging = false;
+    let wasDragged = false;
+    let lastX = 0, lastY = 0;
+    let dragStartTime = 0;
+    let pinchStartDist = 0;
+    let pinchStartRadius = camRadius;
+
+    function pauseAutoRotate(ms) {
+        autoRotatePausedUntil = Date.now() + ms;
+    }
+
+    /* ---------- Pointer down ---------- */
+    canvas.addEventListener("pointerdown", (e) => {
+        canvas.setPointerCapture(e.pointerId);
+        activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+        if (activePointers.size === 1) {
+            isDragging = true;
+            wasDragged = false;
+            dragStartTime = Date.now();
+            lastX = e.clientX;
+            lastY = e.clientY;
+            dragPointerId = e.pointerId;
+            canvas.style.cursor = "grabbing";
+            pauseAutoRotate(60000);
+        } else if (activePointers.size === 2) {
+            isDragging = false;
+            const [p1, p2] = Array.from(activePointers.values());
+            pinchStartDist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+            pinchStartRadius = camRadius;
+        }
+    });
+
+    /* ---------- Pointer move ---------- */
+    canvas.addEventListener("pointermove", (e) => {
+        if (!activePointers.has(e.pointerId)) return;
+        activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+        if (activePointers.size === 2) {
+            const [p1, p2] = Array.from(activePointers.values());
+            const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+            if (pinchStartDist > 0) {
+                const scale = pinchStartDist / dist;
+                camRadius = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, pinchStartRadius * scale));
+            }
+            return;
+        }
+
+        if (isDragging && e.pointerId === dragPointerId) {
+            const dx = e.clientX - lastX;
+            const dy = e.clientY - lastY;
+            if (Math.abs(dx) + Math.abs(dy) > 3) wasDragged = true;
+            lastX = e.clientX;
+            lastY = e.clientY;
+
+            camTheta -= dx * DRAG_SENSITIVITY;
+            camPhi   -= dy * DRAG_SENSITIVITY;
+            camPhi = Math.max(0.15, Math.min(Math.PI - 0.15, camPhi));
+
+            camAnimating = false;
+            camTargetPhi = camPhi;
+            camTargetTheta = camTheta;
+        }
+    });
+
+    /* ---------- Pointer up / cancel ---------- */
+    function endPointer(e) {
+        activePointers.delete(e.pointerId);
+
+        if (e.pointerId === dragPointerId) {
+            const quickTap = !wasDragged && (Date.now() - dragStartTime < 400);
+            isDragging = false;
+            dragPointerId = null;
+            canvas.style.cursor = "grab";
+
+            if (quickTap) {
+                onGlobeClick(e);
+            }
+        }
+    }
+    canvas.addEventListener("pointerup", endPointer);
+    canvas.addEventListener("pointercancel", endPointer);
+
+    /* ---------- Wheel zoom (desktop) ---------- */
+    canvas.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        camRadius += e.deltaY * 0.003;
+        camRadius = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, camRadius));
+        pauseAutoRotate(10000);
+    }, { passive: false });
+
+    /* ---------- Double-click to resume auto-rotate ---------- */
+    canvas.addEventListener("dblclick", () => {
+        autoRotatePausedUntil = 0;
+        camAnimating = false;
+    });
+
+    /* ---------- Animation loop ---------- */
     let lastSunUpdate = 0;
 
     function animate() {
@@ -2058,20 +2165,17 @@ function initEarth() {
 
         const now = Date.now();
 
-        // Update sun direction every 30 seconds
         if (now - lastSunUpdate > 30000) {
             earthSunDirection.copy(getSunDirection());
             lastSunUpdate = now;
         }
 
-        // Auto-rotate camera unless paused
-        if (now > autoRotatePausedUntil && !camAnimating) {
+        if (now > autoRotatePausedUntil && !camAnimating && activePointers.size === 0) {
             camTheta += AUTO_ROTATE_SPEED;
         }
 
-        // Smooth camera animation to target
         if (camAnimating) {
-            camPhi += (camTargetPhi - camPhi) * 0.08;
+            camPhi   += (camTargetPhi   - camPhi)   * 0.08;
             camTheta += (camTargetTheta - camTheta) * 0.08;
             if (Math.abs(camTargetPhi - camPhi) < 0.005 &&
                 Math.abs(camTargetTheta - camTheta) < 0.005) {
@@ -2081,7 +2185,6 @@ function initEarth() {
             }
         }
 
-        // Position camera on the sphere
         earthCamera.position.x = camRadius * Math.sin(camPhi) * Math.cos(camTheta);
         earthCamera.position.y = camRadius * Math.cos(camPhi);
         earthCamera.position.z = camRadius * Math.sin(camPhi) * Math.sin(camTheta);
@@ -2091,7 +2194,7 @@ function initEarth() {
     }
     animate();
 
-    // Resize handling
+    /* ---------- Resize ---------- */
     window.addEventListener("resize", () => {
         if (!earthRenderer || !earthCamera) return;
         const newSize = container.clientWidth || 320;
@@ -2101,8 +2204,6 @@ function initEarth() {
     });
 
     earthInitialized = true;
-
-    // Show any saved markers that already exist
     updateSavedMarkers();
 }
 
