@@ -51,12 +51,15 @@ def set_cache(key, data):
 def home():
     return render_template("weather.html")
 
+
 # =================================
 # PWA: MANIFEST
 # =================================
 @app.route("/manifest.json")
 def manifest():
-    return send_from_directory("static", "manifest.json", mimetype="application/manifest+json")
+    return send_from_directory(
+        "static", "manifest.json", mimetype="application/manifest+json"
+    )
 
 
 # =================================
@@ -64,7 +67,10 @@ def manifest():
 # =================================
 @app.route("/service-worker.js")
 def service_worker():
-    return send_from_directory("static", "service-worker.js", mimetype="application/javascript")
+    return send_from_directory(
+        "static", "service-worker.js", mimetype="application/javascript"
+    )
+
 
 # =================================
 # GEOCODING
@@ -267,6 +273,7 @@ def uv_index():
     if cached:
         return jsonify(cached)
 
+    # Attempt 1: One Call 3.0
     try:
         response = requests.get(
             "https://api.openweathermap.org/data/3.0/onecall",
@@ -289,6 +296,7 @@ def uv_index():
     except requests.exceptions.RequestException as e:
         print(f"One Call UV error: {e}")
 
+    # Attempt 2: Legacy 2.5 endpoint
     try:
         response = requests.get(
             "https://api.openweathermap.org/data/2.5/uvi",
@@ -381,6 +389,7 @@ def forecast():
         latitude = float(location["lat"])
         longitude = float(location["lon"])
 
+    # Current weather (for sunrise/sunset + timezone)
     weather_params = {
         "lat": latitude,
         "lon": longitude,
@@ -403,6 +412,7 @@ def forecast():
             "message": f"Unable to connect to weather service: {str(e)}"
         }), 503
 
+    # Forecast
     forecast_params = {
         "lat": latitude,
         "lon": longitude,
@@ -455,7 +465,6 @@ def reverse():
     if cached:
         return jsonify(cached)
 
-    # Nominatim — requires a User-Agent header
     try:
         response = requests.get(
             "https://nominatim.openstreetmap.org/reverse",
@@ -463,7 +472,7 @@ def reverse():
                 "lat": lat,
                 "lon": lon,
                 "format": "json",
-                "zoom": 14,          # neighbourhood/village level
+                "zoom": 14,
                 "addressdetails": 1
             },
             headers={
@@ -475,7 +484,6 @@ def reverse():
         data = response.json()
         addr = data.get("address", {})
 
-        # Pick the most precise locality available
         name = (
             addr.get("village") or
             addr.get("hamlet") or
@@ -502,6 +510,64 @@ def reverse():
         print(f"Nominatim error: {e}")
         return jsonify({"name": "", "state": "", "country": ""}), 200
 
+# =================================
+# IP-BASED LOCATION (for first-time visitors)
+# =================================
+@app.route("/my-location")
+def my_location():
+    # Get client IP — handle proxies like Render, Cloudflare, etc.
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        client_ip = forwarded.split(",")[0].strip()
+    else:
+        client_ip = request.remote_addr or ""
+
+    # Localhost / private IPs can't be geolocated
+    if (
+        not client_ip
+        or client_ip in ("127.0.0.1", "localhost", "::1")
+        or client_ip.startswith("10.")
+        or client_ip.startswith("192.168.")
+        or client_ip.startswith("172.")
+    ):
+        return jsonify({
+            "name": "", "state": "", "country": "",
+            "lat": None, "lon": None
+        }), 200
+
+    cache_key = f"iploc:{client_ip}"
+    cached = get_cache(cache_key)
+    if cached:
+        return jsonify(cached)
+
+    try:
+        response = requests.get(
+            f"https://ipapi.co/{client_ip}/json/",
+            headers={"User-Agent": "Neckrone8xWeather/1.0"},
+            timeout=8
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        result = {
+            "name": data.get("city") or "",
+            "state": data.get("region") or "",
+            "country": (data.get("country_code") or "").upper(),
+            "lat": data.get("latitude"),
+            "lon": data.get("longitude")
+        }
+
+        if result["name"] and result["lat"] and result["lon"]:
+            set_cache(cache_key, result)
+
+        return jsonify(result)
+
+    except requests.exceptions.RequestException as e:
+        print(f"IP geolocation error: {e}")
+        return jsonify({
+            "name": "", "state": "", "country": "",
+            "lat": None, "lon": None
+        }), 200
 
 # =================================
 # START SERVER
