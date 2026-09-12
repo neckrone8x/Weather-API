@@ -1,6 +1,7 @@
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_from_directory
 import requests
 import os
+import time
 from dotenv import load_dotenv
 
 # Load environment variables from .env
@@ -21,12 +22,49 @@ if not API_KEY:
 
 
 # =================================
+# SIMPLE IN-MEMORY CACHE
+# =================================
+cache = {}
+CACHE_TTL = 600  # 10 minutes
+
+
+def get_cache(key):
+    """Return cached data if valid, else None."""
+    if key in cache:
+        entry = cache[key]
+        if time.time() - entry["time"] < CACHE_TTL:
+            return entry["data"]
+        else:
+            del cache[key]
+    return None
+
+
+def set_cache(key, data):
+    """Store data in cache with current timestamp."""
+    cache[key] = {"time": time.time(), "data": data}
+
+
+# =================================
 # HOME PAGE
 # =================================
 @app.route("/")
 def home():
     return render_template("weather.html")
 
+# =================================
+# PWA: MANIFEST
+# =================================
+@app.route("/manifest.json")
+def manifest():
+    return send_from_directory("static", "manifest.json", mimetype="application/manifest+json")
+
+
+# =================================
+# PWA: SERVICE WORKER
+# =================================
+@app.route("/service-worker.js")
+def service_worker():
+    return send_from_directory("static", "service-worker.js", mimetype="application/javascript")
 
 # =================================
 # GEOCODING
@@ -36,7 +74,6 @@ def get_coordinates(city):
     url = "https://api.openweathermap.org/geo/1.0/direct"
     city = city.strip()
 
-    # Country name to code mapping (common countries)
     country_codes = {
         "kenya": "KE", "angola": "AO", "uganda": "UG",
         "tanzania": "TZ", "rwanda": "RW", "burundi": "BI",
@@ -47,7 +84,6 @@ def get_coordinates(city):
         "brazil": "BR", "mozambique": "MZ"
     }
 
-    # Parse city and country
     parts = [part.strip() for part in city.split(",")]
 
     if len(parts) >= 2:
@@ -160,7 +196,7 @@ def weather():
 
     # Weather using city name
     if not city:
-        city = "Kisumu"  # Default city
+        city = "Kisumu"
 
     try:
         locations = get_coordinates(city)
@@ -197,7 +233,6 @@ def weather():
         response.raise_for_status()
         weather_data = response.json()
 
-        # Preserve searched location
         weather_data["searched_location"] = {
             "name": location.get("name", city),
             "country": location.get("country", ""),
@@ -218,6 +253,99 @@ def weather():
 
 
 # =================================
+# UV INDEX (with multiple fallbacks)
+# =================================
+@app.route("/uv")
+def uv_index():
+    lat = request.args.get("lat")
+    lon = request.args.get("lon")
+    if not lat or not lon:
+        return jsonify({"cod": 400, "value": None, "message": "lat and lon required"}), 400
+
+    cache_key = f"uv:lat{lat},lon{lon}"
+    cached = get_cache(cache_key)
+    if cached:
+        return jsonify(cached)
+
+    try:
+        response = requests.get(
+            "https://api.openweathermap.org/data/3.0/onecall",
+            params={
+                "lat": lat,
+                "lon": lon,
+                "appid": API_KEY,
+                "units": "metric",
+                "exclude": "minutely,hourly,daily,alerts"
+            },
+            timeout=10
+        )
+        if response.status_code == 200:
+            data = response.json()
+            uvi = data.get("current", {}).get("uvi")
+            if uvi is not None:
+                result = {"value": uvi}
+                set_cache(cache_key, result)
+                return jsonify(result)
+    except requests.exceptions.RequestException as e:
+        print(f"One Call UV error: {e}")
+
+    try:
+        response = requests.get(
+            "https://api.openweathermap.org/data/2.5/uvi",
+            params={"lat": lat, "lon": lon, "appid": API_KEY},
+            timeout=10
+        )
+        if response.status_code == 200:
+            data = response.json()
+            if "value" in data:
+                set_cache(cache_key, data)
+                return jsonify(data)
+    except requests.exceptions.RequestException as e:
+        print(f"Legacy UV error: {e}")
+
+    return jsonify({"value": None, "message": "UV index unavailable on current plan"}), 200
+
+
+# =================================
+# AIR POLLUTION
+# =================================
+@app.route("/air")
+def air_pollution():
+    lat = request.args.get("lat")
+    lon = request.args.get("lon")
+    if not lat or not lon:
+        return jsonify({"cod": 400, "aqi": None, "message": "lat and lon required"}), 400
+
+    cache_key = f"air:lat{lat},lon{lon}"
+    cached = get_cache(cache_key)
+    if cached:
+        return jsonify(cached)
+
+    try:
+        response = requests.get(
+            "https://api.openweathermap.org/data/2.5/air_pollution",
+            params={"lat": lat, "lon": lon, "appid": API_KEY},
+            timeout=10
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        if "list" in data and len(data["list"]) > 0:
+            aqi = data["list"][0]["main"]["aqi"]
+            components = data["list"][0].get("components", {})
+            result = {"aqi": aqi, "components": components}
+        else:
+            result = {"aqi": None}
+
+        set_cache(cache_key, result)
+        return jsonify(result)
+
+    except requests.exceptions.RequestException as e:
+        print(f"Air pollution error: {e}")
+        return jsonify({"aqi": None, "message": str(e)}), 200
+
+
+# =================================
 # 5-DAY FORECAST
 # =================================
 @app.route("/forecast")
@@ -229,7 +357,6 @@ def forecast():
     weather_url = "https://api.openweathermap.org/data/2.5/weather"
     forecast_url = "https://api.openweathermap.org/data/2.5/forecast"
 
-    # Find location
     if latitude and longitude:
         try:
             latitude = float(latitude)
@@ -254,7 +381,6 @@ def forecast():
         latitude = float(location["lat"])
         longitude = float(location["lon"])
 
-    # Get current weather for sunrise/sunset and timezone
     weather_params = {
         "lat": latitude,
         "lon": longitude,
@@ -277,7 +403,6 @@ def forecast():
             "message": f"Unable to connect to weather service: {str(e)}"
         }), 503
 
-    # Get forecast
     forecast_params = {
         "lat": latitude,
         "lon": longitude,
@@ -300,7 +425,6 @@ def forecast():
             "message": f"Unable to connect to forecast service: {str(e)}"
         }), 503
 
-    # Preserve location information for frontend display
     searched_name = weather_data.get("name", city if city else "Your Location")
     searched_country = weather_data.get("sys", {}).get("country", "")
 
@@ -309,14 +433,74 @@ def forecast():
         "country": searched_country
     }
 
-    # Add sunrise/sunset from current weather
     forecast_data["sunrise"] = weather_data.get("sys", {}).get("sunrise", 0)
     forecast_data["sunset"] = weather_data.get("sys", {}).get("sunset", 0)
-
-    # Add timezone at root level (frontend expects this)
     forecast_data["timezone"] = forecast_data.get("city", {}).get("timezone", 0)
 
     return jsonify(forecast_data)
+
+
+# =================================
+# REVERSE GEOCODING (Nominatim — most precise)
+# =================================
+@app.route("/reverse")
+def reverse():
+    lat = request.args.get("lat")
+    lon = request.args.get("lon")
+    if not lat or not lon:
+        return jsonify({"name": "", "state": "", "country": ""}), 200
+
+    cache_key = f"reverse:lat{lat},lon{lon}"
+    cached = get_cache(cache_key)
+    if cached:
+        return jsonify(cached)
+
+    # Nominatim — requires a User-Agent header
+    try:
+        response = requests.get(
+            "https://nominatim.openstreetmap.org/reverse",
+            params={
+                "lat": lat,
+                "lon": lon,
+                "format": "json",
+                "zoom": 14,          # neighbourhood/village level
+                "addressdetails": 1
+            },
+            headers={
+                "User-Agent": "Neckrone8xWeather/1.0 (contact@neckrone8x.co.ke)"
+            },
+            timeout=10
+        )
+        response.raise_for_status()
+        data = response.json()
+        addr = data.get("address", {})
+
+        # Pick the most precise locality available
+        name = (
+            addr.get("village") or
+            addr.get("hamlet") or
+            addr.get("suburb") or
+            addr.get("neighbourhood") or
+            addr.get("town") or
+            addr.get("city") or
+            data.get("name") or
+            ""
+        )
+
+        state = addr.get("state") or addr.get("county") or ""
+        country = (addr.get("country_code") or "").upper()
+
+        result = {
+            "name": name,
+            "state": state,
+            "country": country
+        }
+        set_cache(cache_key, result)
+        return jsonify(result)
+
+    except requests.exceptions.RequestException as e:
+        print(f"Nominatim error: {e}")
+        return jsonify({"name": "", "state": "", "country": ""}), 200
 
 
 # =================================
