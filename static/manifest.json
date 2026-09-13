@@ -1,6 +1,7 @@
 {
-    "name": "Neckrone8x Weather",
-    "short_name": "Weather",
+
+    "name": "8X Weather",
+    "short_name": "8X Weather",
     "description": "Real-time weather with hourly, 5-day, and monthly forecasts.",
     "start_url": "/",
     "display": "standalone",
