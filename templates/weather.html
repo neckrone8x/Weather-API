@@ -6,6 +6,47 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <title>Neckrone8x Weather</title>
+
+        <!-- Mixpanel Analytics -->
+    <script type="text/javascript">
+        (function (f, b) {
+            if (!b.__SV) {
+                var e, g, i, h;
+                window.mixpanel = b;
+                b._i = [];
+                b.init = function (e, f, c) {
+                    function g(a, d) {
+                        var b = d.split(".");
+                        2 == b.length && (a = a[b[0]], d = b[1]);
+                        a[d] = function () { a.push([d].concat(Array.prototype.slice.call(arguments, 0))) }
+                    }
+                    var a = b;
+                    "undefined" !== typeof c ? a = b[c] = [] : c = "mixpanel";
+                    a.people = a.people || [];
+                    a.toString = function (a) { var d = "mixpanel"; "mixpanel" !== c && (d += "." + c); a || (d += " (stub)"); return d };
+                    a.people.toString = function () { return a.toString(1) + ".people (stub)" };
+                    i = "disable time_event track track_pageview track_links track_forms register register_once alias unregister identify name_tag set_config reset opt_in_tracking opt_out_tracking has_opted_in_tracking has_opted_out_tracking clear_opt_in_out_tracking start_batch_senders people.set people.set_once people.unset people.increment people.append people.union people.track_charge people.clear_charges people.delete_user people.remove".split(" ");
+                    for (h = 0; h < i.length; h++) g(a, i[h]);
+                    b._i.push([e, f, c])
+                };
+                b.__SV = 1.2;
+                e = f.createElement("script");
+                e.type = "text/javascript";
+                e.async = !0;
+                e.src = "//cdn.mxpnl.com/libs/mixpanel-2-latest.min.js";
+                g = f.getElementsByTagName("script")[0];
+                g.parentNode.insertBefore(e, g);
+            }
+        })(document, window.mixpanel || []);
+    </script>
+
+    <script>
+        mixpanel.init("4cc4b82ece523e34f4f1fdc2f8be91c9", {
+            track_pageview: true,
+            persistence: "localStorage",
+            ignore_dnt: false
+        });
+    </script>
     
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 
@@ -1190,6 +1231,135 @@
     opacity: 0.5;
 }
 
+/* =========================================================
+   REFRESH BUTTON
+========================================================= */
+#refresh-btn.spinning {
+    animation: refreshSpin 0.8s linear infinite;
+}
+
+@keyframes refreshSpin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+#refresh-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* =========================================================
+   SAVED CITIES AT A GLANCE
+========================================================= */
+.cities-section {
+    margin-top: 40px;
+}
+
+.cities-glance {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    width: 100%;
+}
+
+.cities-empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 20px;
+    font-size: 13px;
+    opacity: 0.55;
+    font-style: italic;
+}
+
+.city-card {
+    background: rgba(255, 255, 255, 0.10);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+    padding: 14px 12px;
+    text-align: center;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.15s, border-color 0.2s;
+    position: relative;
+    min-height: 130px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.city-card:hover {
+    background: rgba(255, 255, 255, 0.18);
+    transform: translateY(-2px);
+    border-color: rgba(255, 255, 255, 0.28);
+}
+
+.city-card.loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.city-card.error {
+    background: rgba(255, 100, 100, 0.12);
+    border-color: rgba(255, 100, 100, 0.3);
+}
+
+.city-card-name {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.3;
+    word-break: break-word;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.city-card-icon {
+    font-size: 32px;
+    line-height: 1;
+    margin: 4px 0;
+}
+
+.city-card-temp {
+    font-size: 22px;
+    font-weight: bold;
+    line-height: 1;
+}
+
+.city-card-feels {
+    font-size: 11px;
+    opacity: 0.65;
+    margin-top: 2px;
+}
+
+.city-card-spinner {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    border: 3px solid rgba(255, 255, 255, 0.25);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+    margin: 10px 0;
+}
+
+@media (max-width: 600px) {
+    .cities-glance {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+    }
+    .city-card {
+        padding: 12px 8px;
+        min-height: 115px;
+    }
+    .city-card-icon { font-size: 28px; }
+    .city-card-temp { font-size: 19px; }
+    .city-card-name { font-size: 12px; }
+}
+
     </style>
 </head>
 
@@ -1198,10 +1368,11 @@
         <!-- TOP BAR -->
         <div class="top-bar">
             <div class="brand">NECKRONE8X</div>
-            <div class="top-actions">
+             <div class="top-actions">
                 <button id="unit-toggle" class="theme-toggle-btn" type="button" title="Toggle °C/°F">°C</button>
+                <button id="refresh-btn" class="theme-toggle-btn" type="button" title="Refresh weather">🔄</button>
                 <button id="theme-toggle" class="theme-toggle-btn" type="button" title="Toggle theme">🌗</button>
-            </div>
+             </div>
         </div>
 
         <!-- SEARCH -->
@@ -1371,7 +1542,16 @@
                 </div>
             </section>
 
-            <!-- EARTH SPHERE -->
+            <!-- SAVED CITIES AT A GLANCE -->
+            <section class="cities-section">
+                <div class="forecast-title">YOUR SAVED CITIES</div>
+                <div id="cities-glance" class="cities-glance">
+                    <div class="cities-empty">
+                        💡 Save a location with the ♡ button to see it here
+                    </div>
+                </div>
+            </section>
+
             <!-- EARTH SPHERE -->
 <section class="earth-section">
     <div class="forecast-title">OUR PLANET</div>
@@ -1451,6 +1631,7 @@
         </div>
 
     </div>
+    
 </section>
 
         </div>
@@ -1681,9 +1862,17 @@
                 renderForecast(window._lastForecastData);
             }
 
+            if (typeof mpTrack === "function") {
+                mpTrack("unit_toggled", { new_mode: unitMode });
+            }
+
             if (window._currentWeatherData) {
                 renderEarthPanel(window._currentWeatherData);
             }
+
+            clearCityCardCache();
+            renderCitiesGlance();
+
         }
 
         function setupUnitButton() {
@@ -1691,6 +1880,74 @@
             if (!btn) return;
             updateUnitButton();
             btn.addEventListener("click", cycleUnit);
+        }
+
+        /* =========================================================
+           MANUAL REFRESH
+        ========================================================= */
+        function setupRefreshButton() {
+            const btn = getElement("refresh-btn");
+            if (!btn) return;
+
+            btn.addEventListener("click", async () => {
+                // Prevent double-clicks
+                if (btn.disabled) return;
+                btn.disabled = true;
+                btn.classList.add("spinning");
+
+                // Determine what to refresh:
+                // 1) If a location is loaded → refresh that
+                // 2) Otherwise → refresh whatever's in the search box
+                const loc = window._loadedLocation;
+                const input = getElement("city-input");
+
+                try {
+                    if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lon)) {
+                        await refreshByCoordinates(
+                            loc.lat,
+                            loc.lon,
+                            loc.name,
+                            loc.country,
+                            loc.state
+                        );
+                    } else if (input && input.value.trim()) {
+                        await refreshByCity(input.value.trim());
+                    } else {
+                        await refreshByCity("Kisumu");
+                    }
+                    
+                    clearCityCardCache();
+                    renderCitiesGlance();
+
+                    showToast("✅ Weather updated");
+                } catch (err) {
+                    console.error("Refresh failed:", err);
+                    showToast("❌ Refresh failed");
+                } finally {
+                    // Stop spinning
+                    btn.classList.remove("spinning");
+                    btn.disabled = false;
+                }
+            });
+        }
+
+        /* Promisified refresh helpers so we can await them */
+        function refreshByCoordinates(lat, lon, name = "", country = "", state = "") {
+            return new Promise((resolve) => {
+                // Reuse existing loaders — they fire their own fetches
+                getWeatherByCoordinates(lat, lon, name, country, state);
+
+                // Give the fetch a moment, then resolve
+                // (the display functions update the UI when they finish)
+                setTimeout(resolve, 1200);
+            });
+        }
+
+        function refreshByCity(city) {
+            return new Promise((resolve) => {
+                getWeather(city);
+                setTimeout(resolve, 1200);
+            });
         }
 
         /* =========================================================
@@ -1949,6 +2206,20 @@
                 updateCurrentMarker(data.coord.lat, data.coord.lon);
                 rotateGlobeTo(data.coord.lat, data.coord.lon);
             }
+
+            // Track this weather load in Mixpanel
+            if (typeof mpTrack === "function") {
+                mpTrack("weather_loaded", {
+                    city: locationText,
+                    country: countryCode,
+                    lat: data.coord?.lat,
+                    lon: data.coord?.lon,
+                    temp_c: temperature,
+                    condition: getConditionText(weatherId, description),
+                    source: data.searched_location?.name ? "search" : "coordinates"
+                });
+            }
+
                         // Populate the Earth info panel
             renderEarthPanel(data);
         }
@@ -2882,7 +3153,7 @@ function updateEarthSaveButton() {
                     lastX = e.clientX;
                     lastY = e.clientY;
 
-                    camTheta -= dx * DRAG_SENSITIVITY;
+                    camTheta += dx * DRAG_SENSITIVITY;
                     camPhi   -= dy * DRAG_SENSITIVITY;
                     camPhi = Math.max(0.15, Math.min(Math.PI - 0.15, camPhi));
 
@@ -3228,6 +3499,9 @@ function updateEarthSaveButton() {
             const searchHint = getElement("search-hint");
 
             if (!resultsContainer) return;
+            if (typeof mpTrack === "function") {
+            mpTrack("search_city", { query: city });
+            }
             if (errorMessage) errorMessage.textContent = "";
             resultsContainer.innerHTML = '<div class="loading-container"><div class="spinner"></div></div>';
             resultsContainer.style.display = "block";
@@ -3326,6 +3600,10 @@ function updateEarthSaveButton() {
             setControlsVisibility(true);
 
             window._currentWeatherData = null;
+
+            if (typeof mpTrack === "function") {
+            mpTrack("use_my_location");
+            }
 
             navigator.geolocation.getCurrentPosition(
                 position => {
@@ -3613,6 +3891,110 @@ function updateEarthSaveButton() {
 
             updateSavedMarkers();
             updateEarthSaveButton();
+            renderCitiesGlance();
+        }
+
+                /* =========================================================
+           SAVED CITIES AT A GLANCE
+        ========================================================= */
+        const cityCardCache = {};   // keyed by lat,lon → { data, time }
+        const CARD_CACHE_TTL = 5 * 60 * 1000;   // 5 minutes
+
+        function renderCitiesGlance() {
+            const container = getElement("cities-glance");
+            if (!container) return;
+
+            // Empty state
+            if (!savedLocations || savedLocations.length === 0) {
+                container.innerHTML = `
+                    <div class="cities-empty">
+                        💡 Save a location with the ♡ button to see it here
+                    </div>
+                `;
+                return;
+            }
+
+            // Build cards (loading state first)
+            container.innerHTML = "";
+            const cards = [];
+
+            savedLocations.forEach(loc => {
+                const card = document.createElement("div");
+                card.className = "city-card loading";
+                card.title = "Click to load " + (loc.name || "this location");
+
+                card.innerHTML = `
+                    <div class="city-card-name">📍 ${loc.name || "Unknown"}</div>
+                    <div class="city-card-spinner"></div>
+                `;
+
+                card.addEventListener("click", () => {
+                    getWeatherByCoordinates(loc.lat, loc.lon, loc.name, loc.country, loc.state);
+                    // Scroll to top so user sees the loaded data
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                });
+
+                container.appendChild(card);
+                cards.push({ card, loc });
+            });
+
+            // Fetch each city's weather in parallel
+            cards.forEach(({ card, loc }) => {
+                const key = `${loc.lat},${loc.lon}`;
+                const cached = cityCardCache[key];
+
+                // Use cache if fresh
+                if (cached && Date.now() - cached.time < CARD_CACHE_TTL) {
+                    fillCityCard(card, loc, cached.data);
+                    return;
+                }
+
+                // Fetch
+                fetch(`/weather?lat=${loc.lat}&lon=${loc.lon}`)
+                    .then(r => r.ok ? r.json() : null)
+                    .then(data => {
+                        if (!data || (data.cod !== 200 && data.cod !== "200")) {
+                            throw new Error("No data");
+                        }
+                        // Cache
+                        cityCardCache[key] = { data, time: Date.now() };
+                        fillCityCard(card, loc, data);
+                    })
+                    .catch(() => {
+                        card.classList.remove("loading");
+                        card.classList.add("error");
+                        card.innerHTML = `
+                            <div class="city-card-name">📍 ${loc.name || "Unknown"}</div>
+                            <div class="city-card-feels">⚠️ Unavailable</div>
+                        `;
+                    });
+            });
+        }
+
+        function fillCityCard(card, loc, data) {
+            card.classList.remove("loading");
+
+            const w = data.weather?.[0] || {};
+            const wId = Number(w.id);
+            const icon = getWeatherIcon(wId, w.icon);
+            const temp = Number(data.main?.temp);
+            const feels = Number(data.main?.feels_like);
+
+            // Shorten the name if it's too long
+            const rawName = loc.name || data.name || "Unknown";
+            const shortName = rawName.length > 18 ? rawName.slice(0, 16) + "…" : rawName;
+
+            card.innerHTML = `
+                <div class="city-card-name" title="${rawName}">📍 ${shortName}</div>
+                <div class="city-card-icon">${icon}</div>
+                <div class="city-card-temp">${formatTemp(temp, 0)}${tempUnit()}</div>
+                <div class="city-card-feels">feels ${formatTemp(feels, 0)}${tempUnit()}</div>
+            `;
+        }
+
+        /* Clear the cache when the user manually refreshes */
+        function clearCityCardCache() {
+            Object.keys(cityCardCache).forEach(k => delete cityCardCache[k]);
         }
 
         function updateSaveButtonState() {
@@ -3658,6 +4040,13 @@ function updateEarthSaveButton() {
                         country: loc.country,
                         lat: loc.lat,
                         lon: loc.lon
+                    });
+                }
+
+                if (typeof mpTrack === "function") {
+                    mpTrack(isLocationSaved(loc.lat, loc.lon) ? "location_unsaved" : "location_saved", {
+                        city: loc.name,
+                        country: loc.country
                     });
                 }
 
@@ -3884,6 +4273,23 @@ function shareCurrentWeather() {
         }
 
         /* =========================================================
+           MIXPANEL ANALYTICS
+        ========================================================= */
+        function mpTrack(eventName, properties = {}) {
+            if (typeof mixpanel === "undefined") return;
+            try {
+                mixpanel.track(eventName, {
+                    ...properties,
+                    app_version: "1.0",
+                    unit_mode: unitMode,
+                    theme: themeMode
+                });
+            } catch (e) {
+                console.warn("Mixpanel track failed:", e);
+            }
+        }
+
+        /* =========================================================
            DEFAULT WEATHER
         ========================================================= */
         async function loadDefaultWeather() {
@@ -3943,11 +4349,13 @@ function shareCurrentWeather() {
             setupLocationButton();
             setupThemeButton();
             setupUnitButton();
+            setupRefreshButton();
             setupAutoRefresh();
             setupSaveButton();
             setupShareButton();
             setupShareMenu();
             renderSavedLocations();
+            renderCitiesGlance();
             updateSaveButtonState();
             setupOutsideClick();
             setupBackToTop();
