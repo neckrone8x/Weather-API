@@ -721,6 +721,143 @@ Message:
         return jsonify({"ok": False, "message": str(e)}), 500
 
 # =================================
+# GLOBAL DISASTER ALERTS (GDACS)
+# =================================
+@app.route("/global-alerts")
+def global_alerts():
+    """Fetch recent major disaster events from GDACS."""
+    cache_key = "global-alerts"
+    cached = get_cache(cache_key)
+    if cached:
+        return jsonify(cached)
+
+    try:
+        # Get events from the last 30 days, red/orange alerts only
+        from datetime import datetime, timedelta
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+
+        response = requests.get(
+            "https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH",
+            params={
+                "fromdate": start_date,
+                "todate": end_date,
+                "alertlevel": "red;orange",
+                "pagesize": 20
+            },
+            timeout=10
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        features = data.get("features", [])
+        alerts = []
+        for f in features:
+            props = f.get("properties", {})
+            alerts.append({
+                "id": props.get("eventid"),
+                "type": props.get("eventtype", ""),
+                "name": props.get("name", "Unknown event"),
+                "alertlevel": props.get("alertlevel", "Green"),
+                "country": props.get("country", ""),
+                "date": props.get("fromdate", ""),
+                "lat": f.get("geometry", {}).get("coordinates", [None, None])[1] if f.get("geometry") else None,
+                "lon": f.get("geometry", {}).get("coordinates", [None, None])[0] if f.get("geometry") else None,
+                "url": f"https://www.gdacs.org/report.aspx?eventid={props.get('eventid')}&eventtype={props.get('eventtype')}"
+            })
+
+        # Sort by alert level (Red first) then date
+        order = {"Red": 0, "Orange": 1, "Green": 2}
+        alerts.sort(key=lambda a: (order.get(a["alertlevel"], 9), a["date"]))
+
+        result = {"alerts": alerts[:15], "count": len(alerts)}
+        set_cache(cache_key, result)
+        return jsonify(result)
+
+    except requests.exceptions.RequestException as e:
+        print(f"GDACS error: {e}")
+        return jsonify({"alerts": [], "error": str(e)}), 200
+
+
+# =================================
+# LOCAL ALERTS (NWS + USGS)
+# =================================
+@app.route("/local-alerts")
+def local_alerts():
+    """Fetch active weather alerts (NWS) and recent earthquakes (USGS) near coordinates."""
+    lat = request.args.get("lat")
+    lon = request.args.get("lon")
+    if not lat or not lon:
+        return jsonify({"alerts": [], "quakes": []}), 200
+
+    cache_key = f"local-alerts:lat{lat},lon{lon}"
+    cached = get_cache(cache_key)
+    if cached:
+        return jsonify(cached)
+
+    alerts = []
+    quakes = []
+
+    # ── NWS active alerts (US only) ──
+    try:
+        response = requests.get(
+            "https://api.weather.gov/alerts/active",
+            params={"point": f"{lat},{lon}"},
+            headers={"User-Agent": "Neckrone8xWeather/1.0 (contact@neckrone8x.co.ke)"},
+            timeout=10
+        )
+        if response.status_code == 200:
+            data = response.json()
+            for feat in data.get("features", [])[:5]:
+                props = feat.get("properties", {})
+                alerts.append({
+                    "event": props.get("event", "Weather Alert"),
+                    "severity": props.get("severity", "Unknown"),
+                    "headline": props.get("headline", ""),
+                    "description": (props.get("description") or "")[:300],
+                    "onset": props.get("onset", ""),
+                    "expires": props.get("expires", "")
+                })
+    except requests.exceptions.RequestException as e:
+        print(f"NWS alert error: {e}")
+
+    # ── USGS recent earthquakes (global) ──
+    try:
+        # Find earthquakes within ~5 degrees (~500km) in the last 7 days
+        response = requests.get(
+            "https://earthquake.usgs.gov/fdsnws/event/1/query",
+            params={
+                "format": "geojson",
+                "latitude": lat,
+                "longitude": lon,
+                "maxradiuskm": 500,
+                "minmagnitude": 4.0,
+                "starttime": (__import__("datetime").datetime.now() - __import__("datetime").timedelta(days=7)).strftime("%Y-%m-%d")
+            },
+            timeout=10
+        )
+        if response.status_code == 200:
+            data = response.json()
+            for feat in data.get("features", [])[:3]:
+                props = feat.get("properties", {})
+                geo = feat.get("geometry", {}).get("coordinates", [None, None, None])
+                quakes.append({
+                    "magnitude": props.get("mag"),
+                    "place": props.get("place", "Unknown location"),
+                    "time": props.get("time"),
+                    "url": props.get("url", ""),
+                    "lon": geo[0],
+                    "lat": geo[1],
+                    "depth": geo[2]
+                })
+    except requests.exceptions.RequestException as e:
+        print(f"USGS error: {e}")
+
+    result = {"alerts": alerts, "quakes": quakes}
+    set_cache(cache_key, result)
+    return jsonify(result)
+
+# =================================
 # START SERVER
 # =================================
 if __name__ == "__main__":

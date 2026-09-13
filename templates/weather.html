@@ -90,7 +90,7 @@
            MAIN CARD
         ========================================================= */
         .weather-card {
-            width: min(1100px, 96vw);
+            width: min(1320px, 96vw);
             margin: 20px auto;
             padding: 28px 35px;
             border-radius: 24px;
@@ -1591,6 +1591,431 @@ textarea.feedback-input {
     .wtw-title { font-size: 10px; }
 }
 
+/* =========================================================
+   HERO REDESIGN — temp + details side by side
+========================================================= */
+.cw-header {
+    text-align: center;
+    margin-bottom: 8px;
+}
+
+.cw-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.15fr;
+    gap: 24px;
+    align-items: start;
+    margin-top: 12px;
+}
+
+.cw-hero {
+    text-align: center;
+    padding: 22px 16px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cw-hero .weather-icon {
+    font-size: 74px;
+    margin: 0 0 8px;
+    min-height: auto;
+}
+
+.cw-hero .temperature {
+    font-size: 62px;
+    line-height: 1;
+    margin-bottom: 6px;
+}
+
+.cw-hero .condition {
+    font-size: 16px;
+    margin-top: 0;
+}
+
+.cw-hero .weather-report {
+    margin-top: 16px;
+    font-size: 13px;
+    padding: 12px 14px;
+}
+
+.cw-details {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.cw-details .what-to-wear {
+    margin-top: 0;
+    max-width: none;
+}
+
+.cw-details .details {
+    margin-top: 0;
+}
+
+.cw-details .sun-times {
+    margin-top: 0;
+}
+
+.cw-details .extra-details {
+    margin-top: 0;
+}
+
+/* Mobile — stack back to single column */
+@media (max-width: 780px) {
+    .cw-grid {
+        grid-template-columns: 1fr;
+        gap: 14px;
+    }
+    .cw-hero {
+        padding: 16px 12px;
+    }
+    .cw-hero .weather-icon { font-size: 62px; }
+    .cw-hero .temperature { font-size: 52px; }
+}
+
+/* =========================================================
+   QUICK NAV — sticky jump bar
+========================================================= */
+.quick-nav {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    margin: 0 0 18px;
+    border-radius: 14px;
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    position: sticky;
+    top: 12px;
+    z-index: 9000;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.quick-nav a {
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.75);
+    transition: background 0.2s, color 0.2s;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.quick-nav a:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: white;
+}
+
+/* Sections need extra scroll margin for the sticky nav */
+        #section-now,
+        #section-hourly,
+        #section-forecast,
+        #section-calendar,
+        #section-cities,
+        #section-catastrophe,
+        #section-globe {
+            scroll-margin-top: 80px;
+        }
+
+@media (max-width: 600px) {
+    .quick-nav {
+        gap: 4px;
+        padding: 8px 8px;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        justify-content: flex-start;
+    }
+    .quick-nav a {
+        padding: 6px 11px;
+        font-size: 12px;
+    }
+}
+
+/* =========================================================
+   GLOBAL CATASTROPHE WATCH
+========================================================= */
+.catastrophe-section {
+    margin-top: 40px;
+}
+
+.catastrophe-subtitle {
+    text-align: center;
+    font-size: 12px;
+    opacity: 0.6;
+    margin-top: -10px;
+    margin-bottom: 16px;
+}
+
+.catastrophe-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+}
+
+.catastrophe-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    transition: transform 0.15s, background 0.2s;
+    cursor: pointer;
+    text-decoration: none;
+    color: inherit;
+    min-height: 90px;         /* ⭐ NEW: minimum height */
+    max-height: 110px;        /* ⭐ NEW: maximum height */
+    overflow: hidden;         /* ⭐ NEW: clip anything extra */
+}
+
+.catastrophe-card:hover {
+    transform: translateY(-2px);
+    background: rgba(255, 255, 255, 0.14);
+}
+
+.catastrophe-card.red {
+    border-color: rgba(239, 68, 68, 0.6);
+    background: rgba(239, 68, 68, 0.12);
+}
+
+.catastrophe-card.orange {
+    border-color: rgba(251, 146, 60, 0.6);
+    background: rgba(251, 146, 60, 0.10);
+}
+
+.catastrophe-icon {
+    font-size: 28px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.catastrophe-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.catastrophe-name {
+    font-size: 14px;
+    font-weight: bold;
+    line-height: 1.3;
+    margin-bottom: 4px;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    max-height: 2.6em;
+}
+
+.catastrophe-type {
+    font-size: 11px;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: rgba(56, 189, 248, 0.9);
+    margin-bottom: 3px;
+}
+
+.catastrophe-view {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: bold;
+    color: rgba(56, 189, 248, 0.9);
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.catastrophe-card:hover .catastrophe-view {
+    opacity: 1;
+}
+
+.catastrophe-meta {
+    font-size: 11px;
+    opacity: 0.7;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.catastrophe-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.catastrophe-badge.red {
+    background: rgba(239, 68, 68, 0.85);
+    color: white;
+}
+
+.catastrophe-badge.orange {
+    background: rgba(251, 146, 60, 0.85);
+    color: #1e293b;
+}
+
+.catastrophe-badge.green {
+    background: rgba(34, 197, 94, 0.85);
+    color: white;
+}
+
+.catastrophe-empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 24px;
+    font-size: 13px;
+    opacity: 0.55;
+    font-style: italic;
+}
+
+@media (max-width: 600px) {
+    .catastrophe-list {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* =========================================================
+   SAFETY ALERT BANNER
+========================================================= */
+.safety-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    width: 700px;
+    max-width: 100%;
+    margin: 12px auto 0;
+    padding: 14px 18px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #dc2626, #991b1b);
+    color: white;
+    box-shadow: 0 8px 24px rgba(220, 38, 38, 0.3);
+    animation: alertSlide 0.4s ease;
+}
+
+.safety-alert.severity-moderate {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    box-shadow: 0 8px 24px rgba(245, 158, 11, 0.3);
+}
+
+.safety-alert.severity-minor {
+    background: linear-gradient(135deg, #3b82f6, #1e40af);
+    box-shadow: 0 8px 24px rgba(59, 130, 246, 0.3);
+}
+
+@keyframes alertSlide {
+    from { opacity: 0; transform: translateY(-10px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.safety-alert-icon {
+    font-size: 24px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.safety-alert-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.safety-alert-title {
+    font-size: 15px;
+    font-weight: bold;
+    margin-bottom: 3px;
+}
+
+.safety-alert-text {
+    font-size: 13px;
+    line-height: 1.4;
+    opacity: 0.92;
+}
+
+.safety-alert-close {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 16px;
+    cursor: pointer;
+    opacity: 0.75;
+    padding: 0 4px;
+    flex-shrink: 0;
+}
+
+.safety-alert-close:hover {
+    opacity: 1;
+}
+
+@media (max-width: 600px) {
+    .safety-alert {
+        padding: 12px 14px;
+    }
+    .safety-alert-icon { font-size: 20px; }
+    .safety-alert-title { font-size: 14px; }
+    .safety-alert-text { font-size: 12px; }
+}
+
+/* =========================================================
+   CATASTROPHE LEGEND
+========================================================= */
+.catastrophe-legend {
+    max-width: 900px;
+    margin: 0 auto 20px;
+    padding: 12px 18px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.legend-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+}
+
+.legend-label {
+    font-weight: bold;
+    opacity: 0.7;
+    letter-spacing: 0.5px;
+    margin-right: 4px;
+}
+
+.legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    opacity: 0.88;
+}
+
+.legend-item .catastrophe-badge {
+    font-size: 9px;
+    padding: 2px 7px;
+}
+
+@media (max-width: 600px) {
+    .catastrophe-legend {
+        padding: 10px 14px;
+        font-size: 11px;
+        gap: 6px;
+    }
+    .legend-row {
+        gap: 10px;
+    }
+}
+
     </style>
 </head>
 
@@ -1641,82 +2066,113 @@ textarea.feedback-input {
         <!-- LOCATION RESULTS -->
         <div id="location-results" class="location-results"></div>
 
+                <!-- SAFETY ALERT BANNER -->
+        <div id="safety-alert" class="safety-alert" style="display: none;">
+            <div class="safety-alert-icon" id="safety-alert-icon">⚠️</div>
+            <div class="safety-alert-content">
+                <div class="safety-alert-title" id="safety-alert-title">Weather Alert</div>
+                <div class="safety-alert-text" id="safety-alert-text"></div>
+            </div>
+            <button id="safety-alert-close" class="safety-alert-close" type="button">✕</button>
+        </div>
+
         <!-- ERROR MESSAGE -->
         <div id="error-message" class="error-message"></div>
 
         <!-- WEATHER CONTENT -->
         <div class="weather-content">
-            <!-- CURRENT WEATHER -->
-            <div class="current-weather">
-                <div class="city" id="city">Loading...</div>
-                <div class="date" id="date">Loading date...</div>
-                <div class="time" id="time">--:--:--</div>
-                <div class="weather-icon" id="weather-icon">🌤️</div>
-                <div class="temperature" id="temperature">--°C</div>
-                <div class="condition" id="condition">Loading weather...</div>
 
-                <!-- WEATHER REPORT (natural language) -->
-                <div class="weather-report" id="weather-report"></div>
+                    <!-- QUICK NAV -->
+            <nav class="quick-nav">
+                <a href="#section-now">Now</a>
+                <a href="#section-hourly">Hourly</a>
+                <a href="#section-forecast">5-Day</a>
+                <a href="#section-calendar">Calendar</a>
+                <a href="#section-cities">Cities</a>
+                <a href="#section-catastrophe">Alerts</a>
+                <a href="#section-globe">Globe</a>
+            </nav>
 
-                                <!-- WHAT TO WEAR -->
-                <div class="what-to-wear" id="what-to-wear">
-                    <div class="wtw-icon" id="wtw-icon">👕</div>
-                    <div class="wtw-content">
-                        <div class="wtw-title">WHAT TO WEAR TODAY</div>
-                        <div class="wtw-text" id="wtw-text">Loading...</div>
-                    </div>
+                        <div class="current-weather" id="section-now">
+                <!-- HEADER: city / date / time -->
+                <div class="cw-header">
+                    <div class="city" id="city">Loading...</div>
+                    <div class="date" id="date">Loading date...</div>
+                    <div class="time" id="time">--:--:--</div>
                 </div>
 
-                <!-- MAIN WEATHER DETAILS -->
-                <div class="details">
-                    <div class="detail">
-                        <div class="detail-title">FEELS LIKE</div>
-                        <div class="detail-value" id="feels-like">--°C</div>
-                    </div>
-                    <div class="detail">
-                        <div class="detail-title">HUMIDITY</div>
-                        <div class="detail-value" id="humidity">--%</div>
-                    </div>
-                    <div class="detail">
-                        <div class="detail-title">WIND</div>
-                        <div class="detail-value" id="wind">-- m/s</div>
-                    </div>
-                    <div class="detail">
-                        <div class="detail-title">CLOUDS</div>
-                        <div class="detail-value" id="clouds">--%</div>
-                    </div>
-                </div>
+                <div class="cw-grid">
 
-                <!-- SUNRISE / SUNSET -->
-                <div class="sun-times">
-                    <div class="detail">
-                        <div class="detail-title">🌅 SUNRISE</div>
-                        <div class="detail-value" id="sunrise">--:--</div>
+                    <!-- LEFT: big weather icon + temp + condition + report -->
+                    <div class="cw-hero">
+                        <div class="weather-icon" id="weather-icon">🌤️</div>
+                        <div class="temperature" id="temperature">--°C</div>
+                        <div class="condition" id="condition">Loading weather...</div>
+                        <div class="weather-report" id="weather-report"></div>
                     </div>
-                    <div class="detail">
-                        <div class="detail-title">🌇 SUNSET</div>
-                        <div class="detail-value" id="sunset">--:--</div>
-                    </div>
-                </div>
 
-                                <!-- UV INDEX, AIR QUALITY, MOON, SUN COUNTDOWN -->
-                <div class="extra-details">
-                    <div class="extra-detail">
-                        <div class="detail-title">☀️ UV INDEX</div>
-                        <div class="detail-value" id="uv-index">--</div>
+                    <!-- RIGHT: what-to-wear + details + sun + extras -->
+                    <div class="cw-details">
+
+                        <div class="what-to-wear" id="what-to-wear">
+                            <div class="wtw-icon" id="wtw-icon">👕</div>
+                            <div class="wtw-content">
+                                <div class="wtw-title">WHAT TO WEAR TODAY</div>
+                                <div class="wtw-text" id="wtw-text">Loading...</div>
+                            </div>
+                        </div>
+
+                        <div class="details">
+                            <div class="detail">
+                                <div class="detail-title">FEELS LIKE</div>
+                                <div class="detail-value" id="feels-like">--°C</div>
+                            </div>
+                            <div class="detail">
+                                <div class="detail-title">HUMIDITY</div>
+                                <div class="detail-value" id="humidity">--%</div>
+                            </div>
+                            <div class="detail">
+                                <div class="detail-title">WIND</div>
+                                <div class="detail-value" id="wind">-- m/s</div>
+                            </div>
+                            <div class="detail">
+                                <div class="detail-title">CLOUDS</div>
+                                <div class="detail-value" id="clouds">--%</div>
+                            </div>
+                        </div>
+
+                        <div class="sun-times">
+                            <div class="detail">
+                                <div class="detail-title">🌅 SUNRISE</div>
+                                <div class="detail-value" id="sunrise">--:--</div>
+                            </div>
+                            <div class="detail">
+                                <div class="detail-title">🌇 SUNSET</div>
+                                <div class="detail-value" id="sunset">--:--</div>
+                            </div>
+                        </div>
+
+                        <div class="extra-details">
+                            <div class="extra-detail">
+                                <div class="detail-title">☀️ UV INDEX</div>
+                                <div class="detail-value" id="uv-index">--</div>
+                            </div>
+                            <div class="extra-detail">
+                                <div class="detail-title">😷 AIR QUALITY</div>
+                                <div class="detail-value" id="air-quality">--</div>
+                            </div>
+                            <div class="extra-detail">
+                                <div class="detail-title">🌙 MOON</div>
+                                <div class="detail-value" id="moon-phase">--</div>
+                            </div>
+                            <div class="extra-detail">
+                                <div class="detail-title" id="sun-countdown-label">🌇 SUNSET IN</div>
+                                <div class="detail-value" id="sun-countdown">--</div>
+                            </div>
+                        </div>
+
                     </div>
-                    <div class="extra-detail">
-                        <div class="detail-title">😷 AIR QUALITY</div>
-                        <div class="detail-value" id="air-quality">--</div>
-                    </div>
-                    <div class="extra-detail">
-                        <div class="detail-title">🌙 MOON</div>
-                        <div class="detail-value" id="moon-phase">--</div>
-                    </div>
-                    <div class="extra-detail">
-                        <div class="detail-title" id="sun-countdown-label">🌇 SUNSET IN</div>
-                        <div class="detail-value" id="sun-countdown">--</div>
-                    </div>
+
                 </div>
             </div>
 
@@ -1744,7 +2200,7 @@ textarea.feedback-input {
             </section>
 
             <!-- HOURLY FORECAST -->
-            <section class="hourly-section">
+            <section class="hourly-section" id="section-hourly">
                 <div class="forecast-title">HOURLY FORECAST</div>
                 <div class="hourly-forecast" id="hourly-forecast">
                     <div class="loading-container"><div class="spinner"></div></div>
@@ -1752,7 +2208,7 @@ textarea.feedback-input {
             </section>
 
             <!-- 5-DAY FORECAST -->
-            <section class="forecast-section">
+            <section class="forecast-section" id="section-forecast">
                 <div class="forecast-title">
                     5-DAY FORECAST
                     <div id="forecast-location" class="forecast-location">Loading...</div>
@@ -1763,7 +2219,7 @@ textarea.feedback-input {
             </section>
 
             <!-- MONTHLY CALENDAR -->
-            <section class="calendar-section">
+            <section class="calendar-section" id="section-calendar">
                 <div class="forecast-title">
                     MONTHLY CALENDAR
                     <div id="calendar-location" class="forecast-location">Loading...</div>
@@ -1779,7 +2235,7 @@ textarea.feedback-input {
             </section>
 
             <!-- SAVED CITIES AT A GLANCE -->
-            <section class="cities-section">
+            <section class="cities-section" id="section-cities">
                 <div class="forecast-title">YOUR SAVED CITIES</div>
                 <div id="cities-glance" class="cities-glance">
                     <div class="cities-empty">
@@ -1788,8 +2244,37 @@ textarea.feedback-input {
                 </div>
             </section>
 
+                                <!-- GLOBAL CATASTROPHE WATCH -->
+            <section class="catastrophe-section" id="section-catastrophe">
+                <div class="forecast-title">GLOBAL CATASTROPHE WATCH</div>
+                <div class="catastrophe-subtitle">Active major disasters worldwide (last 30 days)</div>
+
+                <!-- Legend -->
+                <div class="catastrophe-legend">
+                    <div class="legend-row">
+                        <span class="legend-label">Severity:</span>
+                        <span class="legend-item"><span class="catastrophe-badge red">Red</span> Emergency</span>
+                        <span class="legend-item"><span class="catastrophe-badge orange">Orange</span> Warning</span>
+                        <span class="legend-item"><span class="catastrophe-badge green">Green</span> Advisory</span>
+                    </div>
+                    <div class="legend-row">
+                        <span class="legend-label">Types:</span>
+                        <span class="legend-item">🌋 Earthquake</span>
+                        <span class="legend-item">🌊 Flood</span>
+                        <span class="legend-item">🌀 Cyclone</span>
+                        <span class="legend-item">🌵 Drought</span>
+                        <span class="legend-item">🔥 Wildfire</span>
+                        <span class="legend-item">⚠️ Other</span>
+                    </div>
+                </div>
+
+                <div id="catastrophe-list" class="catastrophe-list">
+                    <div class="loading-container"><div class="spinner"></div></div>
+                </div>
+            </section>
+
             <!-- EARTH SPHERE -->
-<section class="earth-section">
+<section class="earth-section" id="section-globe">
     <div class="forecast-title">OUR PLANET</div>
 
     <div class="earth-layout">
@@ -2431,6 +2916,83 @@ textarea.feedback-input {
             return report;
         }
 
+                /* =========================================================
+           LOCATION SAFETY ALERTS
+        ========================================================= */
+        async function checkLocationAlerts(lat, lon) {
+            const banner = getElement("safety-alert");
+            const titleEl = getElement("safety-alert-title");
+            const textEl = getElement("safety-alert-text");
+            const iconEl = getElement("safety-alert-icon");
+            const closeBtn = getElement("safety-alert-close");
+
+            if (!banner || !titleEl || !textEl) return;
+
+            // Hide previous alert
+            banner.style.display = "none";
+            banner.className = "safety-alert";
+
+            try {
+                const res = await fetch(`/local-alerts?lat=${lat}&lon=${lon}`);
+                if (!res.ok) return;
+                const data = await res.json();
+
+                const alerts = data.alerts || [];
+                const quakes = data.quakes || [];
+
+                // Prioritize: severe weather alert > earthquake
+                if (alerts.length > 0) {
+                    const top = alerts[0];
+                    const sev = (top.severity || "").toLowerCase();
+
+                    iconEl.textContent = "⚠️";
+                    titleEl.textContent = top.event || "Weather Alert";
+                    textEl.textContent = top.headline || top.description || "";
+
+                    if (sev === "extreme" || sev === "severe") {
+                        banner.classList.add("severity-moderate");
+                    } else {
+                        banner.classList.add("severity-minor");
+                    }
+
+                    banner.style.display = "flex";
+
+                    if (typeof mpTrack === "function") {
+                        mpTrack("safety_alert_shown", {
+                            event: top.event,
+                            severity: top.severity
+                        });
+                    }
+
+                } else if (quakes.length > 0) {
+                    const q = quakes[0];
+                    iconEl.textContent = "🌋";
+                    titleEl.textContent = `M${q.magnitude} Earthquake Nearby`;
+                    textEl.textContent = `${q.place} — ${Math.round(q.depth)}km deep`;
+
+                    banner.classList.add("severity-moderate");
+                    banner.style.display = "flex";
+
+                    if (typeof mpTrack === "function") {
+                        mpTrack("earthquake_alert_shown", {
+                            magnitude: q.magnitude,
+                            place: q.place
+                        });
+                    }
+                }
+
+            } catch (err) {
+                console.warn("Alert check failed:", err);
+            }
+
+            // Wire the close button (re-wire each time)
+            if (closeBtn) {
+                closeBtn.onclick = () => {
+                    banner.style.display = "none";
+                };
+            }
+        }
+
         /* =========================================================
            DISPLAY CURRENT WEATHER
         ========================================================= */
@@ -2537,6 +3099,11 @@ textarea.feedback-input {
 
             if (data.coord && Number.isFinite(data.coord.lat) && Number.isFinite(data.coord.lon)) {
                 fetchExtraData(data.coord.lat, data.coord.lon);
+            }
+
+            // Check for local safety alerts
+            if (data.coord && Number.isFinite(data.coord.lat) && Number.isFinite(data.coord.lon)) {
+                checkLocationAlerts(data.coord.lat, data.coord.lon);
             }
 
             // Update moon + sun countdown
@@ -4385,6 +4952,94 @@ function updateEarthSaveButton() {
         }
 
                 /* =========================================================
+           GLOBAL CATASTROPHE WATCH
+        ========================================================= */
+        function getDisasterIcon(type) {
+            const map = {
+                "EQ": "🌋",
+                "TC": "🌀",
+                "FL": "🌊",
+                "VO": "🌋",
+                "DR": "🏜️",
+                "WF": "🔥"
+            };
+            return map[type] || "⚠️";
+        }
+
+        function getDisasterName(type) {
+            const map = {
+                "EQ": "Earthquake",
+                "TC": "Tropical Cyclone",
+                "FL": "Flood",
+                "VO": "Volcano",
+                "DR": "Drought",
+                "WF": "Wildfire"
+            };
+            return map[type] || "Disaster";
+        }
+
+        async function renderCatastropheWatch() {
+            const container = getElement("catastrophe-list");
+            if (!container) return;
+
+            try {
+                const res = await fetch("/global-alerts");
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                const alerts = data.alerts || [];
+
+                if (alerts.length === 0) {
+                    container.innerHTML = `
+                        <div class="catastrophe-empty">
+                            ✅ No major global disasters reported in the last 30 days
+                        </div>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = "";
+                alerts.forEach(a => {
+                    const card = document.createElement("a");
+                    card.className = `catastrophe-card ${(a.alertlevel || "").toLowerCase()}`;
+                    card.href = a.url;
+                    card.target = "_blank";
+                    card.rel = "noopener noreferrer";
+
+                                        const icon = getDisasterIcon(a.type);
+                    const typeLabel = getDisasterName(a.type);
+
+                    card.innerHTML = `
+                        <div class="catastrophe-icon">${icon}</div>
+                        <div class="catastrophe-info">
+                            <div class="catastrophe-type">${typeLabel}</div>
+                            <div class="catastrophe-name" title="${a.name}">${a.name}</div>
+                            <div class="catastrophe-meta">
+                                <span class="catastrophe-badge ${(a.alertlevel || "").toLowerCase()}">
+                                    ${a.alertlevel || "Green"}
+                                </span>
+                                <span>${a.country || ""}</span>
+                                <span class="catastrophe-view">View report →</span>
+                            </div>
+                        </div>
+                    `;
+                    container.appendChild(card);
+                });
+
+                if (typeof mpTrack === "function") {
+                    mpTrack("catastrophe_watch_loaded", { count: alerts.length });
+                }
+
+            } catch (err) {
+                console.error("Catastrophe watch error:", err);
+                container.innerHTML = `
+                    <div class="catastrophe-empty">
+                        ⚠️ Unable to load global alerts
+                    </div>
+                `;
+            }
+        }
+
+                /* =========================================================
            SAVED CITIES AT A GLANCE
         ========================================================= */
         const cityCardCache = {};   // keyed by lat,lon → { data, time }
@@ -4963,12 +5618,14 @@ function shareCurrentWeather() {
             setupShareButton();
             setupShareMenu();
             renderSavedLocations();
+            renderCatastropheWatch();
             renderCitiesGlance();
             updateSaveButtonState();
             setupOutsideClick();
             setupBackToTop();
             setupFeedback();
             initEarth();
+            
 
             updateDateTime();
             setInterval(updateDateTime, 1000);

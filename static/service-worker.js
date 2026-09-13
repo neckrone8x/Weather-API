@@ -1,7 +1,7 @@
 /* =========================================================
    NECKRONE8X WEATHER — SERVICE WORKER
 ========================================================= */
-const CACHE_NAME = "neckrone8x-weather-v5";
+const CACHE_NAME = "neckrone8x-weather-v10";
 
 const APP_SHELL = [
     "/",
