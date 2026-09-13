@@ -2,6 +2,7 @@ from flask import Flask, jsonify, render_template, request, send_from_directory
 import requests
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
 
 # Load environment variables from .env
@@ -449,6 +450,95 @@ def forecast():
 
     return jsonify(forecast_data)
 
+# =================================
+# COMBINED WEATHER + FORECAST
+# (one request instead of two)
+# =================================
+@app.route("/weather-full")
+def weather_full():
+    city = request.args.get("city")
+    latitude = request.args.get("lat")
+    longitude = request.args.get("lon")
+
+    weather_url = "https://api.openweathermap.org/data/2.5/weather"
+    forecast_url = "https://api.openweathermap.org/data/2.5/forecast"
+
+    # ── Resolve coordinates ──
+    if latitude and longitude:
+        try:
+            latitude = float(latitude)
+            longitude = float(longitude)
+        except ValueError:
+            return jsonify({"cod": 400, "message": "Invalid coordinates"}), 400
+
+        searched_name = ""
+        searched_state = ""
+        searched_country = ""
+    else:
+        if not city:
+            city = "Kisumu"
+
+        locations = get_coordinates(city)
+        if not locations:
+            return jsonify({"cod": 404, "message": "City not found"}), 404
+
+        location = locations[0]
+        latitude = float(location["lat"])
+        longitude = float(location["lon"])
+        searched_name = location.get("name", city)
+        searched_state = location.get("state", "")
+        searched_country = location.get("country", "")
+
+    params = {
+        "lat": latitude,
+        "lon": longitude,
+        "appid": API_KEY,
+        "units": "metric",
+    }
+
+    # ── Fetch both in parallel ──
+
+    def fetch(url):
+        try:
+            r = requests.get(url, params=params, timeout=10)
+            r.raise_for_status()
+            return r.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Fetch error for {url}: {e}")
+            return None
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        weather_future = pool.submit(fetch, weather_url)
+        forecast_future = pool.submit(fetch, forecast_url)
+        weather_data = weather_future.result()
+        forecast_data = forecast_future.result()
+
+    if not weather_data:
+        return jsonify({"cod": 503, "message": "Weather service unavailable"}), 503
+    if not forecast_data:
+        return jsonify({"cod": 503, "message": "Forecast service unavailable"}), 503
+
+    # ── Attach searched location ──
+    if searched_name or searched_country or searched_state:
+        weather_data["searched_location"] = {
+            "name": searched_name or weather_data.get("name", ""),
+            "country": searched_country or weather_data.get("sys", {}).get("country", ""),
+            "state": searched_state,
+        }
+        forecast_data["searched_location"] = {
+            "name": searched_name or weather_data.get("name", ""),
+            "country": searched_country or weather_data.get("sys", {}).get("country", ""),
+        }
+
+    # ── Attach forecast extras needed by the frontend ──
+    forecast_data["sunrise"] = weather_data.get("sys", {}).get("sunrise", 0)
+    forecast_data["sunset"]  = weather_data.get("sys", {}).get("sunset", 0)
+    forecast_data["timezone"] = forecast_data.get("city", {}).get("timezone", 0)
+
+    return jsonify({
+        "weather": weather_data,
+        "forecast": forecast_data,
+    })
 
 # =================================
 # REVERSE GEOCODING (Nominatim — most precise)
@@ -568,6 +658,67 @@ def my_location():
             "name": "", "state": "", "country": "",
             "lat": None, "lon": None
         }), 200
+
+# =================================
+# FEEDBACK → EMAIL (SendGrid)
+# =================================
+SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
+FEEDBACK_TO_EMAIL = "bradleyrex32@gmail.com"
+
+@app.route("/feedback", methods=["POST"])
+def feedback():
+    print(f"[feedback] SendGrid key present: {bool(SENDGRID_API_KEY)}")
+
+    if not SENDGRID_API_KEY:
+        return jsonify({"ok": False, "message": "Feedback not configured"}), 500
+
+    data = request.get_json(silent=True) or {}
+    category = str(data.get("category", "general"))[:20]
+    message = str(data.get("message", ""))[:1000]
+    user_email = str(data.get("email", "")).strip()[:120]
+    city = str(data.get("city", ""))[:120]
+    page_url = str(data.get("page_url", ""))[:200]
+
+    if not message.strip():
+        return jsonify({"ok": False, "message": "Message required"}), 400
+
+    body = f"""
+New feedback from Neckrone8x Weather
+
+Category:    {category}
+From city:   {city}
+Page URL:    {page_url}
+User email:  {user_email or "(not provided)"}
+
+Message:
+{message}
+    """.strip()
+
+    try:
+        from sendgrid import SendGridAPIClient
+        from sendgrid.helpers.mail import Mail
+
+        email_message = Mail(
+            from_email=FEEDBACK_TO_EMAIL,
+            to_emails=FEEDBACK_TO_EMAIL,
+            subject=f"[Neckrone8x Weather] {category.upper()} feedback",
+            plain_text_content=body
+        )
+
+        if user_email and "@" in user_email:
+            email_message.reply_to = user_email
+
+        sg = SendGridAPIClient(SENDGRID_API_KEY)
+        response = sg.send(email_message)
+        print(f"[feedback] SendGrid status: {response.status_code}")
+
+        if response.status_code in (200, 201, 202):
+            return jsonify({"ok": True})
+        return jsonify({"ok": False, "message": f"SendGrid returned {response.status_code}"}), 500
+
+    except Exception as e:
+        print(f"[feedback] error: {e}")
+        return jsonify({"ok": False, "message": str(e)}), 500
 
 # =================================
 # START SERVER

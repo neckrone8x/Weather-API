@@ -1360,6 +1360,237 @@
     .city-card-name { font-size: 12px; }
 }
 
+/* =========================================================
+   FEEDBACK WIDGET
+========================================================= */
+.feedback-btn {
+    position: fixed;
+    bottom: 30px;
+    left: 30px;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(15, 23, 42, 0.75);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: white;
+    font-size: 22px;
+    cursor: pointer;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+    transition: transform 0.2s, background 0.2s;
+    z-index: 9998;
+}
+
+.feedback-btn:hover {
+    background: rgba(15, 23, 42, 0.95);
+    transform: scale(1.08);
+}
+
+.feedback-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 10002;
+    padding: 20px;
+}
+
+.feedback-overlay.show {
+    display: flex;
+}
+
+.feedback-modal {
+    width: 100%;
+    max-width: 420px;
+    background: #0f172a;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 18px;
+    padding: 24px 22px 22px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    text-align: center;
+    position: relative;
+}
+
+.feedback-close-btn {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 30px;
+    height: 30px;
+    border: none;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.7);
+    border-radius: 50%;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.feedback-close-btn:hover {
+    background: rgba(255, 255, 255, 0.18);
+}
+
+.feedback-modal h3 {
+    margin: 0 0 6px;
+    font-size: 18px;
+    color: white;
+}
+
+.feedback-sub {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.55);
+    margin: 0 0 16px;
+    line-height: 1.4;
+}
+
+.feedback-categories {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.fb-cat {
+    padding: 10px 6px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    color: white;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.fb-cat:hover {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.fb-cat.active {
+    background: rgba(56, 189, 248, 0.25);
+    border-color: rgba(56, 189, 248, 0.6);
+}
+
+.feedback-input {
+    width: 100%;
+    padding: 11px 14px;
+    margin-bottom: 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    color: white;
+    font-family: inherit;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s;
+    box-sizing: border-box;
+}
+
+.feedback-input:focus {
+    border-color: rgba(56, 189, 248, 0.6);
+}
+
+.feedback-input::placeholder {
+    color: rgba(255, 255, 255, 0.35);
+}
+
+textarea.feedback-input {
+    min-height: 100px;
+    resize: vertical;
+    font-family: inherit;
+}
+
+.feedback-submit-btn {
+    width: 100%;
+    padding: 12px;
+    border-radius: 10px;
+    border: none;
+    background: rgba(56, 189, 248, 0.85);
+    color: #0f172a;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.15s;
+}
+
+.feedback-submit-btn:hover:not(:disabled) {
+    background: rgba(56, 189, 248, 1);
+    transform: translateY(-1px);
+}
+
+.feedback-submit-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+@media (max-width: 600px) {
+    .feedback-btn {
+        bottom: 20px;
+        left: 20px;
+        width: 46px;
+        height: 46px;
+        font-size: 20px;
+    }
+}
+
+/* =========================================================
+   WHAT TO WEAR
+========================================================= */
+.what-to-wear {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    max-width: 640px;
+    margin: 14px auto 0;
+    padding: 14px 18px;
+    border-radius: 14px;
+    background: linear-gradient(135deg,
+        rgba(56, 189, 248, 0.18),
+        rgba(56, 189, 248, 0.08));
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    text-align: left;
+}
+
+.wtw-icon {
+    font-size: 34px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.wtw-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.wtw-title {
+    font-size: 11px;
+    font-weight: bold;
+    letter-spacing: 1.5px;
+    opacity: 0.7;
+    margin-bottom: 3px;
+}
+
+.wtw-text {
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+@media (max-width: 600px) {
+    .what-to-wear {
+        padding: 12px 14px;
+        gap: 10px;
+    }
+    .wtw-icon { font-size: 28px; }
+    .wtw-text { font-size: 14px; }
+    .wtw-title { font-size: 10px; }
+}
+
     </style>
 </head>
 
@@ -1394,11 +1625,7 @@
         <button id="location-button" class="location-button" type="button">📍 Use My Location</button>
 
         <!-- CONTROLS: AUTO-REFRESH + SAVE -->
-        <div class="controls-bar">
-            <label class="auto-refresh-toggle">
-                <input type="checkbox" id="auto-refresh-toggle">
-                <span>Auto-refresh every 10 min</span>
-            </label>
+                <div class="controls-bar">
             <button id="save-location-btn" class="save-btn" type="button" title="Save this location">♡ Save Location</button>
             <button id="share-btn" class="save-btn facebook-btn" type="button" title="Share">
                 <svg class="fb-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
@@ -1430,6 +1657,15 @@
 
                 <!-- WEATHER REPORT (natural language) -->
                 <div class="weather-report" id="weather-report"></div>
+
+                                <!-- WHAT TO WEAR -->
+                <div class="what-to-wear" id="what-to-wear">
+                    <div class="wtw-icon" id="wtw-icon">👕</div>
+                    <div class="wtw-content">
+                        <div class="wtw-title">WHAT TO WEAR TODAY</div>
+                        <div class="wtw-text" id="wtw-text">Loading...</div>
+                    </div>
+                </div>
 
                 <!-- MAIN WEATHER DETAILS -->
                 <div class="details">
@@ -1624,10 +1860,6 @@
                 <span>Share this place</span>
             </button>
 
-            <label class="earth-refresh-row">
-                <input type="checkbox" id="earth-auto-refresh">
-                <span>Auto-refresh every 10 min</span>
-            </label>
         </div>
 
     </div>
@@ -1656,8 +1888,8 @@
         window._currentWeatherData = null;
         window._lastForecastData = null;
 
-        let autoRefreshEnabled = localStorage.getItem("weatherAutoRefresh") === "true";
-        let autoRefreshTimer = null;
+                let autoRefreshTimer = null;
+        const AUTO_REFRESH_MS = 5 * 60 * 1000;   // 5 minutes
         window._loadedLocation = null;
         let savedLocations = JSON.parse(localStorage.getItem("weatherSavedLocations") || "[]");
 
@@ -1668,6 +1900,54 @@
         ========================================================= */
         function getElement(id) {
             return document.getElementById(id);
+        }
+
+                /* =========================================================
+           LOCAL CACHE — instant load on next visit
+        ========================================================= */
+        const WEATHER_CACHE_KEY = "neckrone8x_weather_cache";
+        const FORECAST_CACHE_KEY = "neckrone8x_forecast_cache";
+        const CACHE_MAX_AGE = 60 * 60 * 1000;   // 1 hour
+
+        function saveWeatherToCache(weatherData, forecastData) {
+            try {
+                if (weatherData) {
+                    localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify({
+                        data: weatherData,
+                        time: Date.now()
+                    }));
+                }
+                if (forecastData) {
+                    localStorage.setItem(FORECAST_CACHE_KEY, JSON.stringify({
+                        data: forecastData,
+                        time: Date.now()
+                    }));
+                }
+            } catch (e) {
+                console.warn("Cache save failed:", e);
+            }
+        }
+
+        function loadWeatherFromCache() {
+            try {
+                const raw = localStorage.getItem(WEATHER_CACHE_KEY);
+                if (!raw) return null;
+                const entry = JSON.parse(raw);
+                if (!entry || !entry.data) return null;
+                if (Date.now() - entry.time > CACHE_MAX_AGE) return null;
+                return entry.data;
+            } catch { return null; }
+        }
+
+        function loadForecastFromCache() {
+            try {
+                const raw = localStorage.getItem(FORECAST_CACHE_KEY);
+                if (!raw) return null;
+                const entry = JSON.parse(raw);
+                if (!entry || !entry.data) return null;
+                if (Date.now() - entry.time > CACHE_MAX_AGE) return null;
+                return entry.data;
+            } catch { return null; }
         }
 
         function setControlsVisibility(visible) {
@@ -1932,21 +2212,17 @@
         }
 
         /* Promisified refresh helpers so we can await them */
-        function refreshByCoordinates(lat, lon, name = "", country = "", state = "") {
+                function refreshByCoordinates(lat, lon, name = "", country = "", state = "") {
             return new Promise((resolve) => {
-                // Reuse existing loaders — they fire their own fetches
                 getWeatherByCoordinates(lat, lon, name, country, state);
-
-                // Give the fetch a moment, then resolve
-                // (the display functions update the UI when they finish)
-                setTimeout(resolve, 1200);
+                setTimeout(resolve, 800);   // faster now that it's one request
             });
         }
 
         function refreshByCity(city) {
             return new Promise((resolve) => {
                 getWeather(city);
-                setTimeout(resolve, 1200);
+                setTimeout(resolve, 800);
             });
         }
 
@@ -2008,6 +2284,92 @@
             const sunsetElement = getElement("sunset");
             if (sunriseElement) sunriseElement.textContent = formatTimeFromUnix(sunrise, timezone);
             if (sunsetElement) sunsetElement.textContent = formatTimeFromUnix(sunset, timezone);
+        }
+
+                /* =========================================================
+           WHAT TO WEAR
+        ========================================================= */
+        function getWhatToWear(data) {
+            const main = data.main || {};
+            const wind = data.wind || {};
+            const weather = data.weather?.[0] || {};
+
+            const temp = Number(main.temp);
+            const windSpeed = Number(wind.speed);
+            const weatherId = Number(weather.id);
+
+            // Rain chance from next few forecast slots
+            let rainSoon = false;
+            const fd = window._lastForecastData;
+            if (fd && Array.isArray(fd.list)) {
+                const now = Math.floor(Date.now() / 1000);
+                const next6h = fd.list.filter(item => {
+                    const dt = Number(item.dt);
+                    return dt >= now && dt <= now + 6 * 3600;
+                });
+                rainSoon = next6h.some(item => (Number(item.pop) || 0) >= 0.4);
+            }
+
+            const isRaining = weatherId >= 200 && weatherId <= 531;
+            const isSnowing = weatherId >= 600 && weatherId <= 622;
+            const isThunder = weatherId >= 200 && weatherId <= 232;
+
+            if (!Number.isFinite(temp)) {
+                return { icon: "👕", text: "No advice available" };
+            }
+
+            let icon = "👕";
+            let text = "";
+
+            if (isSnowing) {
+                icon = "🧥";
+                text = "Heavy winter coat, gloves, and boots";
+            } else if (isThunder) {
+                icon = "⛈️";
+                text = "Stay indoors if you can — take an umbrella";
+            } else if (temp >= 30) {
+                icon = "🩳";
+                text = "Shorts, t-shirt, and sun protection";
+            } else if (temp >= 25) {
+                icon = "👕";
+                text = "Light clothes — t-shirt and shorts or jeans";
+            } else if (temp >= 20) {
+                icon = "👕";
+                text = "T-shirt and jeans — comfortable day";
+            } else if (temp >= 15) {
+                icon = "🧥";
+                text = "Light jacket or long sleeves";
+            } else if (temp >= 10) {
+                icon = "🧥";
+                text = "Sweater or hoodie recommended";
+            } else if (temp >= 5) {
+                icon = "🧥";
+                text = "Warm coat and long pants";
+            } else {
+                icon = "🧣";
+                text = "Heavy coat, scarf, and warm layers";
+            }
+
+            if (isRaining) {
+                text += " — ☔ take an umbrella";
+            } else if (rainSoon) {
+                text += " — ☔ rain expected soon";
+            } else if (windSpeed >= 8) {
+                text += " — 💨 windbreaker recommended";
+            }
+
+            return { icon, text };
+        }
+
+        function renderWhatToWear(data) {
+            const card = getElement("what-to-wear");
+            const iconEl = getElement("wtw-icon");
+            const textEl = getElement("wtw-text");
+            if (!card || !iconEl || !textEl) return;
+
+            const advice = getWhatToWear(data);
+            iconEl.textContent = advice.icon;
+            textEl.textContent = advice.text;
         }
 
         /* =========================================================
@@ -2181,6 +2543,9 @@
             renderMoonCard();
             updateSunCountdown();
 
+            // Update "What to wear"
+            renderWhatToWear(data);
+
             const errorMessage = getElement("error-message");
             if (errorMessage) errorMessage.textContent = "";
 
@@ -2222,6 +2587,9 @@
 
                         // Populate the Earth info panel
             renderEarthPanel(data);
+
+            // Save to cache for instant load on next visit
+            saveWeatherToCache(data, window._lastForecastData || null);
         }
 
                 /* =========================================================
@@ -2541,6 +2909,17 @@
             if (container.children.length === 0) {
                 container.innerHTML = "Forecast unavailable.";
             }
+
+            // Cache forecast too (paired with weather)
+            if (window._currentWeatherData) {
+                saveWeatherToCache(window._currentWeatherData, data);
+            }
+
+            // Update "What to wear" now that we have rain forecast
+            if (window._currentWeatherData) {
+                renderWhatToWear(window._currentWeatherData);
+            }
+
         }
 
         /* =========================================================
@@ -2684,6 +3063,7 @@
         let camTargetTheta = camTheta;
         let camAnimating = false;
         let autoRotatePausedUntil = 0;
+        let globeInView = true;   // ⭐ pause rendering when scrolled away
         const AUTO_ROTATE_SPEED = 0.0025;
         const AUTO_ROTATE_PAUSE_MS = 15000;
 
@@ -2725,6 +3105,67 @@
             earthScene.remove(marker);
             if (marker.geometry) marker.geometry.dispose();
             if (marker.material) marker.material.dispose();
+        }
+
+                /* Create a floating text label sprite for the globe */
+        function makeLabelSprite(text) {
+            const canvas = document.createElement("canvas");
+            const ctx = canvas.getContext("2d");
+            canvas.width = 256;
+            canvas.height = 64;
+
+            // Rounded background
+            ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+            const r = 12;
+            ctx.beginPath();
+            ctx.moveTo(r, 0);
+            ctx.lineTo(canvas.width - r, 0);
+            ctx.quadraticCurveTo(canvas.width, 0, canvas.width, r);
+            ctx.lineTo(canvas.width, canvas.height - r);
+            ctx.quadraticCurveTo(canvas.width, canvas.height, canvas.width - r, canvas.height);
+            ctx.lineTo(r, canvas.height);
+            ctx.quadraticCurveTo(0, canvas.height, 0, canvas.height - r);
+            ctx.lineTo(0, r);
+            ctx.quadraticCurveTo(0, 0, r, 0);
+            ctx.closePath();
+            ctx.fill();
+
+            // Border
+            ctx.strokeStyle = "rgba(56, 189, 248, 0.8)";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // Text
+            ctx.font = "bold 28px Arial, sans-serif";
+            ctx.fillStyle = "#ffffff";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+
+            // Truncate if too long
+            const maxWidth = canvas.width - 20;
+            let displayText = text;
+            if (ctx.measureText(displayText).width > maxWidth) {
+                while (displayText.length > 3 &&
+                       ctx.measureText(displayText + "…").width > maxWidth) {
+                    displayText = displayText.slice(0, -1);
+                }
+                displayText += "…";
+            }
+            ctx.fillText(displayText, canvas.width / 2, canvas.height / 2);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.minFilter = THREE.LinearFilter;
+
+            const material = new THREE.SpriteMaterial({
+                map: texture,
+                transparent: true,
+                depthTest: true,
+                depthWrite: false
+            });
+
+            const sprite = new THREE.Sprite(material);
+            sprite.scale.set(0.28, 0.07, 1);
+            return sprite;
         }
 
         /* Add a marker dot at a location */
@@ -2770,7 +3211,7 @@
             currentLocationMarker = group;
         }
 
-        /* Rebuild all saved-location markers */
+        /* Rebuild all saved-location markers (with name labels) */
         function updateSavedMarkers() {
             if (!earthScene) return;
             savedLocationMarkers.forEach(m => removeMarker(m));
@@ -2778,9 +3219,19 @@
 
             savedLocations.forEach(loc => {
                 if (!Number.isFinite(loc.lat) || !Number.isFinite(loc.lon)) return;
+
+                // Dot
                 const marker = addMarker(loc.lat, loc.lon, 0x38bdf8, 0.018, 1.015);
                 earthScene.add(marker);
                 savedLocationMarkers.push(marker);
+
+                // ⭐ Name label above the dot
+                const labelText = loc.name || "Unknown";
+                const label = makeLabelSprite(labelText);
+                const pos = latLonToVector3(loc.lat, loc.lon, 1.08);
+                label.position.copy(pos);
+                earthScene.add(label);
+                savedLocationMarkers.push(label);
             });
         }
 
@@ -3195,8 +3646,11 @@ function updateEarthSaveButton() {
             /* ---------- Animation loop ---------- */
             let lastSunUpdate = 0;
 
-            function animate() {
+                        function animate() {
                 requestAnimationFrame(animate);
+
+                // ⭐ Skip rendering when the globe is off-screen
+                if (!globeInView) return;
 
                 const now = Date.now();
 
@@ -3294,6 +3748,16 @@ function updateEarthSaveButton() {
                 });
             }
 
+                        // ⭐ Pause rendering when the globe scrolls out of view
+            if ("IntersectionObserver" in window) {
+                const io = new IntersectionObserver((entries) => {
+                    entries.forEach(entry => {
+                        globeInView = entry.isIntersecting;
+                    });
+                }, { threshold: 0.05 });
+                io.observe(container);
+            }
+
             // ⭐ NEW: start the UTC clock
             startEarthClock();
 
@@ -3326,7 +3790,7 @@ function updateEarthSaveButton() {
         /* =========================================================
            LOAD WEATHER BY CITY
         ========================================================= */
-        function getWeather(city) {
+                function getWeather(city) {
             city = String(city || "").trim();
             if (!city) return;
 
@@ -3343,19 +3807,25 @@ function updateEarthSaveButton() {
 
             window._currentWeatherData = null;
 
-            fetch(`/weather?city=${encodeURIComponent(city)}`)
+            // ⭐ Single request → weather + forecast together
+            fetch(`/weather-full?city=${encodeURIComponent(city)}`)
                 .then(response => {
                     if (!response.ok) throw new Error(`Weather request failed: ${response.status}`);
                     return response.json();
                 })
-                .then(data => displayWeather(data))
+                .then(payload => {
+                    if (!payload || !payload.weather || !payload.forecast) {
+                        throw new Error("Invalid combined response");
+                    }
+                    displayWeather(payload.weather);
+                    renderHourlyForecast(payload.forecast);
+                    renderForecast(payload.forecast);
+                })
                 .catch(error => {
                     console.error("Weather error:", error);
                     if (conditionElement) conditionElement.textContent = "Unable to load weather.";
                     if (errorMessage) errorMessage.textContent = "Unable to load weather.";
                 });
-
-            getForecast(city);
         }
 
         /* =========================================================
@@ -3422,7 +3892,7 @@ function updateEarthSaveButton() {
         /* =========================================================
            WEATHER BY COORDINATES
         ========================================================= */
-        function getWeatherByCoordinates(latitude, longitude, searchedName = "", searchedCountry = "", searchedState = "") {
+                function getWeatherByCoordinates(latitude, longitude, searchedName = "", searchedCountry = "", searchedState = "") {
             const errorMessage = getElement("error-message");
             const cityElement = getElement("city");
             const conditionElement = getElement("condition");
@@ -3438,26 +3908,40 @@ function updateEarthSaveButton() {
 
             window._currentWeatherData = null;
 
-            fetch(`/weather?lat=${latitude}&lon=${longitude}`)
+            // ⭐ Single request → weather + forecast together
+            fetch(`/weather-full?lat=${latitude}&lon=${longitude}`)
                 .then(response => {
                     if (!response.ok) throw new Error(`Weather request failed: ${response.status}`);
                     return response.json();
                 })
-                .then(data => {
-                    data.searched_location = {
-                        name: searchedName || data.name,
-                        country: searchedCountry || data.sys?.country || "",
+                .then(payload => {
+                    if (!payload || !payload.weather || !payload.forecast) {
+                        throw new Error("Invalid combined response");
+                    }
+
+                    const w = payload.weather;
+                    const f = payload.forecast;
+
+                    w.searched_location = {
+                        name: searchedName || w.name,
+                        country: searchedCountry || w.sys?.country || "",
                         state: searchedState || ""
                     };
-                    displayWeather(data);
+                    f.searched_location = {
+                        name: searchedName || w.name,
+                        country: searchedCountry || w.sys?.country || "",
+                        state: searchedState || ""
+                    };
+
+                    displayWeather(w);
+                    renderHourlyForecast(f);
+                    renderForecast(f);
                 })
                 .catch(error => {
                     console.error("Coordinate weather error:", error);
                     if (conditionElement) conditionElement.textContent = "Unable to load weather.";
                     if (errorMessage) errorMessage.textContent = "Unable to load weather.";
                 });
-
-            getForecastByCoordinates(latitude, longitude, searchedName, searchedCountry, searchedState);
         }
 
         /* =========================================================
@@ -3652,7 +4136,7 @@ function updateEarthSaveButton() {
         /* =========================================================
            WEATHER BY GPS
         ========================================================= */
-        function getWeatherByLocation(latitude, longitude, displayName = "Your Location") {
+                function getWeatherByLocation(latitude, longitude, displayName = "Your Location") {
             const errorMessage = getElement("error-message");
             const cityElement = getElement("city");
             const conditionElement = getElement("condition");
@@ -3663,40 +4147,46 @@ function updateEarthSaveButton() {
             if (forecastLocation) forecastLocation.textContent = "Loading...";
             setLoadingState();
 
-            fetch(`/reverse?lat=${latitude}&lon=${longitude}`)
+            // Reverse-geocode in parallel with fetching
+            const reversePromise = fetch(`/reverse?lat=${latitude}&lon=${longitude}`)
                 .then(r => r.ok ? r.json() : null)
-                .then(reverseData => {
-                    const preciseName =
-                        (reverseData && reverseData.name) ? reverseData.name : displayName;
-                    const preciseState =
-                        (reverseData && reverseData.state) ? reverseData.state : "";
-                    const preciseCountry =
-                        (reverseData && reverseData.country) ? reverseData.country : "";
+                .catch(() => null);
 
-                    return fetch(`/weather?lat=${latitude}&lon=${longitude}`)
-                        .then(response => {
-                            if (!response.ok) throw new Error(`GPS weather request failed: ${response.status}`);
-                            return response.json();
-                        })
-                        .then(data => {
-                            data.searched_location = {
-                                name: preciseName || data.name,
-                                country: preciseCountry || data.sys?.country || "",
-                                state: preciseState || ""
-                            };
+            const weatherPromise = fetch(`/weather-full?lat=${latitude}&lon=${longitude}`)
+                .then(response => {
+                    if (!response.ok) throw new Error(`GPS request failed: ${response.status}`);
+                    return response.json();
+                });
 
-                            displayWeather(data);
+            Promise.all([reversePromise, weatherPromise])
+                .then(([reverseData, payload]) => {
+                    if (!payload || !payload.weather || !payload.forecast) {
+                        throw new Error("Invalid combined response");
+                    }
 
-                            if (errorMessage) errorMessage.textContent = "";
+                    const w = payload.weather;
+                    const f = payload.forecast;
 
-                            getForecastByLocation(
-                                latitude,
-                                longitude,
-                                preciseName || data.name,
-                                preciseCountry || data.sys?.country || "",
-                                preciseState || ""
-                            );
-                        });
+                    const preciseName = (reverseData && reverseData.name) ? reverseData.name : displayName;
+                    const preciseState = (reverseData && reverseData.state) ? reverseData.state : "";
+                    const preciseCountry = (reverseData && reverseData.country) ? reverseData.country : "";
+
+                    w.searched_location = {
+                        name: preciseName || w.name,
+                        country: preciseCountry || w.sys?.country || "",
+                        state: preciseState || ""
+                    };
+                    f.searched_location = {
+                        name: preciseName || w.name,
+                        country: preciseCountry || w.sys?.country || "",
+                        state: preciseState || ""
+                    };
+
+                    displayWeather(w);
+                    renderHourlyForecast(f);
+                    renderForecast(f);
+
+                    if (errorMessage) errorMessage.textContent = "";
                 })
                 .catch(error => {
                     console.error("GPS weather error:", error);
@@ -3814,9 +4304,9 @@ function updateEarthSaveButton() {
             getWeatherByCoordinates(loc.lat, loc.lon, loc.name, loc.country, loc.state);
         }
 
-        function startAutoRefresh() {
+               function startAutoRefresh() {
             stopAutoRefresh();
-            autoRefreshTimer = setInterval(refreshCurrentLocation, 10 * 60 * 1000);
+            autoRefreshTimer = setInterval(refreshCurrentLocation, AUTO_REFRESH_MS);
         }
 
         function stopAutoRefresh() {
@@ -3826,23 +4316,23 @@ function updateEarthSaveButton() {
             }
         }
 
-        function setupAutoRefresh() {
-            const toggle = getElement("auto-refresh-toggle");
-            if (!toggle) return;
+        /* Refresh instantly when the user comes back to the tab */
+        let lastFocusRefresh = 0;
+        function setupVisibilityRefresh() {
+            document.addEventListener("visibilitychange", () => {
+                if (document.visibilityState !== "visible") return;
 
-            toggle.checked = autoRefreshEnabled;
+                // Throttle: don't refresh more than once per 2 minutes
+                const now = Date.now();
+                if (now - lastFocusRefresh < 2 * 60 * 1000) return;
 
-            toggle.addEventListener("change", () => {
-                autoRefreshEnabled = toggle.checked;
-                localStorage.setItem("weatherAutoRefresh", autoRefreshEnabled);
-                if (autoRefreshEnabled) {
-                    startAutoRefresh();
-                } else {
-                    stopAutoRefresh();
-                }
+                // Only refresh if the app has been hidden for a bit
+                if (!window._loadedLocation) return;
+                lastFocusRefresh = now;
+
+                console.log("🔄 Refreshing on tab focus");
+                refreshCurrentLocation();
             });
-
-            if (autoRefreshEnabled) startAutoRefresh();
         }
 
         /* =========================================================
@@ -4256,6 +4746,94 @@ function shareCurrentWeather() {
             }, { passive: true });
         }
 
+                /* =========================================================
+           FEEDBACK WIDGET
+        ========================================================= */
+        let feedbackCategory = "general";
+
+        function setupFeedback() {
+            const openBtn = getElement("feedback-btn");
+            const overlay = getElement("feedback-overlay");
+            const closeBtn = getElement("feedback-close");
+            const submitBtn = getElement("feedback-submit");
+            const message = getElement("feedback-message");
+            const email = getElement("feedback-email");
+            const catBtns = document.querySelectorAll(".fb-cat");
+
+            if (!openBtn || !overlay) return;
+
+            openBtn.addEventListener("click", () => {
+                overlay.classList.add("show");
+                if (typeof mpTrack === "function") mpTrack("feedback_opened");
+            });
+
+            closeBtn.addEventListener("click", () => {
+                overlay.classList.remove("show");
+            });
+
+            overlay.addEventListener("click", (e) => {
+                if (e.target === overlay) overlay.classList.remove("show");
+            });
+
+            document.addEventListener("keydown", (e) => {
+                if (e.key === "Escape") overlay.classList.remove("show");
+            });
+
+            catBtns.forEach(btn => {
+                btn.addEventListener("click", () => {
+                    catBtns.forEach(b => b.classList.remove("active"));
+                    btn.classList.add("active");
+                    feedbackCategory = btn.dataset.cat;
+                });
+            });
+
+            submitBtn.addEventListener("click", () => {
+                const msg = message.value.trim();
+
+                if (msg.length < 5) {
+                    showToast("Please write a bit more (5+ chars)");
+                    return;
+                }
+
+                submitBtn.disabled = true;
+                submitBtn.textContent = "Sending...";
+
+                // Send to Mixpanel
+                if (typeof mpTrack === "function") {
+                    mpTrack("feedback_submitted", {
+                        category: feedbackCategory,
+                        message: msg.slice(0, 1000),
+                        email: email.value.trim() || "(not provided)",
+                        message_length: msg.length,
+                        page_url: window.location.href,
+                        current_city: window._loadedLocation?.name || "unknown"
+                    });
+                }
+
+                // Send to backend for email (optional)
+                fetch("/feedback", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        category: feedbackCategory,
+                        message: msg,
+                        email: email.value.trim(),
+                        city: window._loadedLocation?.name || "",
+                        page_url: window.location.href
+                    })
+                }).catch(err => console.warn("Feedback email failed:", err));
+
+                setTimeout(() => {
+                    message.value = "";
+                    email.value = "";
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = "Send Feedback";
+                    overlay.classList.remove("show");
+                    showToast("✅ Thank you for your feedback!");
+                }, 600);
+            });
+        }
+
         /* =========================================================
            HIDE LOCATION RESULTS WHEN CLICKING OUTSIDE
         ========================================================= */
@@ -4292,10 +4870,39 @@ function shareCurrentWeather() {
         /* =========================================================
            DEFAULT WEATHER
         ========================================================= */
-        async function loadDefaultWeather() {
+                async function loadDefaultWeather() {
     const input = getElement("city-input");
 
-    // 1. Returning visitor — reload their last city instantly
+    // 0. Show cached data instantly (0 ms) — then fetch fresh in background
+    const cachedWeather = loadWeatherFromCache();
+    const cachedForecast = loadForecastFromCache();
+
+    if (cachedWeather) {
+        // Render cached weather right away
+        displayWeather(cachedWeather);
+        if (cachedForecast) {
+            renderHourlyForecast(cachedForecast);
+            renderForecast(cachedForecast);
+        }
+
+        // Now fetch fresh data in background
+        const lastCity = localStorage.getItem("weatherLastCity");
+        if (lastCity) {
+            if (input) input.value = lastCity;
+            getWeather(lastCity);
+        } else if (cachedWeather.coord) {
+            getWeatherByCoordinates(
+                cachedWeather.coord.lat,
+                cachedWeather.coord.lon,
+                cachedWeather.name || "",
+                cachedWeather.sys?.country || "",
+                ""
+            );
+        }
+        return;
+    }
+
+    // 1. No cache — reload their last city
     const lastCity = localStorage.getItem("weatherLastCity");
     if (lastCity) {
         if (input) input.value = lastCity;
@@ -4350,7 +4957,8 @@ function shareCurrentWeather() {
             setupThemeButton();
             setupUnitButton();
             setupRefreshButton();
-            setupAutoRefresh();
+            startAutoRefresh();
+            setupVisibilityRefresh();
             setupSaveButton();
             setupShareButton();
             setupShareMenu();
@@ -4359,6 +4967,7 @@ function shareCurrentWeather() {
             updateSaveButtonState();
             setupOutsideClick();
             setupBackToTop();
+            setupFeedback();
             initEarth();
 
             updateDateTime();
@@ -4463,6 +5072,30 @@ function shareCurrentWeather() {
         <button class="share-close" type="button" id="share-close">Cancel</button>
     </div>
 </div>
+
+    <!-- FEEDBACK FLOATING BUTTON -->
+    <button id="feedback-btn" class="feedback-btn" type="button" title="Send feedback">💬</button>
+
+    <!-- FEEDBACK MODAL -->
+    <div id="feedback-overlay" class="feedback-overlay">
+        <div class="feedback-modal">
+            <button id="feedback-close" class="feedback-close-btn" type="button" aria-label="Close">✕</button>
+            <h3>Send Feedback</h3>
+            <p class="feedback-sub">Help us improve the app — what's on your mind?</p>
+
+            <div class="feedback-categories">
+                <button class="fb-cat" data-cat="bug" type="button">🐛 Bug</button>
+                <button class="fb-cat active" data-cat="general" type="button">💬 General</button>
+                <button class="fb-cat" data-cat="feature" type="button">💡 Feature</button>
+            </div>
+
+            <textarea id="feedback-message" class="feedback-input" placeholder="Tell us what happened, or what you'd like to see..." maxlength="1000"></textarea>
+
+            <input id="feedback-email" class="feedback-input" type="email" placeholder="Email (optional — for a reply)" maxlength="120">
+
+            <button id="feedback-submit" class="feedback-submit-btn" type="button">Send Feedback</button>
+        </div>
+    </div>
 
     <div id="toast" class="toast"></div>
     <!-- BACK TO TOP BUTTON -->
