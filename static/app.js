@@ -154,7 +154,6 @@ function degreesToCompass(deg) {
 function formatLocation(name, state, country) {
     let result = name || "Unknown location";
 
-    // Skip state if it's redundant (e.g., "Mombasa" + "Mombasa County")
     if (state) {
         const cityLower = String(name).toLowerCase().replace(/\s+county$/i, "").trim();
         const stateLower = String(state).toLowerCase().replace(/\s+county$/i, "").trim();
@@ -293,8 +292,8 @@ function cycleUnit() {
         mpTrack("unit_toggled", { new_mode: unitMode });
     }
 
-    if (window._currentWeatherData) {
-        renderEarthPanel(window._currentWeatherData);
+    if (window._currentWeatherData && window.EarthGlobe) {
+        window.EarthGlobe.renderPanel(window._currentWeatherData);
     }
 
     clearCityCardCache();
@@ -430,7 +429,6 @@ function getWhatToWear(data) {
     const main = data.main || {};
     const weather = data.weather?.[0] || {};
 
-    // Use feels-like when available — more accurate for clothing advice
     const temp = Number.isFinite(Number(main.feels_like))
         ? Number(main.feels_like)
         : Number(main.temp);
@@ -440,7 +438,6 @@ function getWhatToWear(data) {
         return { icon: "👕", text: "No advice available" };
     }
 
-    // Check rain in next 6 hours
     let rainSoon = false;
     const fd = window._lastForecastData;
     if (fd && Array.isArray(fd.list)) {
@@ -459,123 +456,63 @@ function getWhatToWear(data) {
     const isThunder = weatherId >= 200 && weatherId <= 232;
     const isSnowing = weatherId >= 600 && weatherId <= 622;
 
-    // PRIORITY 1: Thunderstorm
     if (isThunder) {
-        return {
-            icon: "⛈️",
-            text: "Stay indoors if possible — thunderstorms nearby"
-        };
+        return { icon: "⛈️", text: "Stay indoors if possible — thunderstorms nearby" };
     }
 
-    // PRIORITY 2: Snow
     if (isSnowing) {
-        return {
-            icon: "🧥",
-            text: "Heavy winter coat, gloves, and waterproof boots"
-        };
+        return { icon: "🧥", text: "Heavy winter coat, gloves, and waterproof boots" };
     }
 
-    // PRIORITY 3: Rain (heavy or current)
     if (isHeavyRain || (isAnyRain && !isLightRain)) {
         if (temp >= 25) {
-            return {
-                icon: "☔",
-                text: "Rainy — light waterproof clothes and an umbrella"
-            };
+            return { icon: "☔", text: "Rainy — light waterproof clothes and an umbrella" };
         } else if (temp >= 18) {
-            return {
-                icon: "🧥",
-                text: "Rainy — waterproof jacket and umbrella"
-            };
+            return { icon: "🧥", text: "Rainy — waterproof jacket and umbrella" };
         } else {
-            return {
-                icon: "🧥",
-                text: "Cold and rainy — raincoat and boots"
-            };
+            return { icon: "🧥", text: "Cold and rainy — raincoat and boots" };
         }
     }
 
-    // PRIORITY 4: Light rain / drizzle
     if (isLightRain) {
         if (temp >= 25) {
-            return {
-                icon: "☔",
-                text: "Light rain — t-shirt with an umbrella"
-            };
+            return { icon: "☔", text: "Light rain — t-shirt with an umbrella" };
         } else if (temp >= 15) {
-            return {
-                icon: "☔",
-                text: "Light rain — jacket and umbrella"
-            };
+            return { icon: "☔", text: "Light rain — jacket and umbrella" };
         } else {
-            return {
-                icon: "🧥",
-                text: "Cold and damp — warm coat with umbrella"
-            };
+            return { icon: "🧥", text: "Cold and damp — warm coat with umbrella" };
         }
     }
 
-    // PRIORITY 5: Rain coming soon
     if (rainSoon) {
         if (temp >= 25) {
-            return {
-                icon: "☔",
-                text: "Light clothes + bring an umbrella — rain coming soon"
-            };
+            return { icon: "☔", text: "Light clothes + bring an umbrella — rain coming soon" };
         } else if (temp >= 15) {
-            return {
-                icon: "☔",
-                text: "Light jacket + umbrella — rain in the next few hours"
-            };
+            return { icon: "☔", text: "Light jacket + umbrella — rain in the next few hours" };
         } else {
-            return {
-                icon: "🧥",
-                text: "Warm coat + umbrella — cold rain on the way"
-            };
+            return { icon: "🧥", text: "Warm coat + umbrella — cold rain on the way" };
         }
     }
 
-    // PRIORITY 6: Dry — temperature based
     if (temp >= 30) {
-        return {
-            icon: "🩳",
-            text: "Shorts, t-shirt, and sun protection — very hot day"
-        };
+        return { icon: "🩳", text: "Shorts, t-shirt, and sun protection — very hot day" };
     }
     if (temp >= 25) {
-        return {
-            icon: "👕",
-            text: "Light t-shirt and shorts or jeans — warm day"
-        };
+        return { icon: "👕", text: "Light t-shirt and shorts or jeans — warm day" };
     }
     if (temp >= 20) {
-        return {
-            icon: "👕",
-            text: "T-shirt and jeans — comfortable day"
-        };
+        return { icon: "👕", text: "T-shirt and jeans — comfortable day" };
     }
     if (temp >= 15) {
-        return {
-            icon: "🧥",
-            text: "Light jacket or long sleeves recommended"
-        };
+        return { icon: "🧥", text: "Light jacket or long sleeves recommended" };
     }
     if (temp >= 10) {
-        return {
-            icon: "🧥",
-            text: "Sweater or hoodie recommended"
-        };
+        return { icon: "🧥", text: "Sweater or hoodie recommended" };
     }
     if (temp >= 5) {
-        return {
-            icon: "🧥",
-            text: "Warm coat and long pants"
-        };
+        return { icon: "🧥", text: "Warm coat and long pants" };
     }
-    return {
-        icon: "🧣",
-        text: "Heavy coat, scarf, and warm layers"
-    };
+    return { icon: "🧣", text: "Heavy coat, scarf, and warm layers" };
 }
 
 function renderWhatToWear(data) {
@@ -937,7 +874,6 @@ function displayWeather(data) {
     const cityElement = getElement("city");
     if (cityElement) cityElement.textContent = locationText;
 
-    // Remember the last viewed location (name + coords) for next visit
     try {
         localStorage.setItem("weatherLastCity", locationText);
         if (data.coord && Number.isFinite(data.coord.lat) && Number.isFinite(data.coord.lon)) {
@@ -1044,8 +980,13 @@ function displayWeather(data) {
     }
 
     if (data.coord && Number.isFinite(data.coord.lat) && Number.isFinite(data.coord.lon)) {
-        updateCurrentMarker(data.coord.lat, data.coord.lon);
-        rotateGlobeTo(data.coord.lat, data.coord.lon);
+        if (window.EarthGlobe) {
+            window.EarthGlobe.updateCurrentMarker(data.coord.lat, data.coord.lon);
+            window.EarthGlobe.rotateGlobeTo(data.coord.lat, data.coord.lon);
+        }
+
+        // ⭐ Precipitation radar: recenter and update label
+        setRadarLocation(data.coord.lat, data.coord.lon, locationText);
     }
 
     if (typeof mpTrack === "function") {
@@ -1060,7 +1001,7 @@ function displayWeather(data) {
         });
     }
 
-    renderEarthPanel(data);
+    if (window.EarthGlobe) window.EarthGlobe.renderPanel(data);
     saveWeatherToCache(data, window._lastForecastData || null);
 }
 
@@ -1398,858 +1339,162 @@ function renderForecast(data) {
 /* =========================================================
    RENDER MONTHLY CALENDAR
 ========================================================= */
-        /* =========================================================
-           RENDER MONTHLY CALENDAR (with month navigation)
-        ========================================================= */
-        let _calViewYear = null;
-        let _calViewMonth = null;      // 0-11
-        let _calWeatherMap = {};
-        let _calTodayKey = "";         // "YYYY-MM-DD"
-
-        function renderCalendar(data) {
-            const grid = getElement("calendar-grid");
-            const label = getElement("cal-month-label");
-            if (!grid || !label) return;
-
-            if (!data || !Array.isArray(data.list) || data.list.length === 0) {
-                grid.innerHTML = "";
-                label.textContent = "—";
-                return;
-            }
-
-            const timezone = Number(data.timezone || 0);
-
-            const locationEl = getElement("calendar-location");
-            if (locationEl) {
-                const loc = data.searched_location || {};
-                const city = data.city || {};
-                const name = loc.name || city.name || "";
-                const state = loc.state || "";
-                const country = loc.country || city.country || "";
-                locationEl.textContent = formatLocation(name, state, country);
-            }
-
-            // Build weather map (date → icon)
-            const weatherMap = {};
-            const dateGroups = {};
-            data.list.forEach(item => {
-                if (!item.dt_txt) return;
-                const dateString = item.dt_txt.split(" ")[0];
-                if (!dateGroups[dateString]) dateGroups[dateString] = [];
-                dateGroups[dateString].push(item);
-            });
-
-            Object.keys(dateGroups).forEach(dateString => {
-                const entries = dateGroups[dateString];
-                const daytimeEntries = entries.filter(item =>
-                    String(item.weather?.[0]?.icon || "").endsWith("d")
-                );
-                const candidates = daytimeEntries.length > 0 ? daytimeEntries : entries;
-                let rep = candidates[0];
-                const priority = weather => {
-                    const id = Number(weather?.id);
-                    if (id >= 200 && id <= 232) return 6;
-                    if (id >= 500 && id <= 531) return 5;
-                    if (id >= 300 && id <= 321) return 4;
-                    if (id >= 600 && id <= 622) return 4;
-                    if (id >= 701 && id <= 781) return 3;
-                    if (id === 804) return 2;
-                    if (id >= 801 && id <= 803) return 1;
-                    return 0;
-                };
-                candidates.forEach(item => {
-                    if (priority(item.weather?.[0]) > priority(rep.weather?.[0])) rep = item;
-                });
-                const w = rep.weather?.[0] || {};
-                weatherMap[dateString] = getWeatherIcon(Number(w.id), w.icon);
-            });
-
-            // Compute today in the location's timezone
-            const now = Math.floor(Date.now() / 1000);
-            const localNow = new Date((now + timezone) * 1000);
-            const todayYear = localNow.getUTCFullYear();
-            const todayMonth = localNow.getUTCMonth();
-            const todayDate = localNow.getUTCDate();
-
-            _calWeatherMap = weatherMap;
-            _calTodayKey = `${todayYear}-${String(todayMonth + 1).padStart(2, "0")}-${String(todayDate).padStart(2, "0")}`;
-
-            // Reset view to current month each time new forecast arrives
-            _calViewYear = todayYear;
-            _calViewMonth = todayMonth;
-
-            paintCalendar();
-        }
-
-        function paintCalendar() {
-            const grid = getElement("calendar-grid");
-            const label = getElement("cal-month-label");
-            if (!grid || !label) return;
-            if (_calViewYear === null || _calViewMonth === null) return;
-
-            const year = _calViewYear;
-            const month = _calViewMonth;
-
-            const monthNames = [
-                "January","February","March","April","May","June",
-                "July","August","September","October","November","December"
-            ];
-            label.textContent = `${monthNames[month]} ${year}`;
-
-            const firstDay = new Date(Date.UTC(year, month, 1));
-            const startWeekday = firstDay.getUTCDay();
-            const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-
-            grid.innerHTML = "";
-
-            for (let i = 0; i < startWeekday; i++) {
-                const cell = document.createElement("div");
-                cell.className = "cal-day empty";
-                grid.appendChild(cell);
-            }
-
-            for (let day = 1; day <= daysInMonth; day++) {
-                const cell = document.createElement("div");
-                cell.className = "cal-day";
-
-                const dateStr =
-                    `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-
-                if (dateStr === _calTodayKey) cell.classList.add("today");
-
-                const dateEl = document.createElement("div");
-                dateEl.className = "cal-date";
-                dateEl.textContent = day;
-                cell.appendChild(dateEl);
-
-                const icon = _calWeatherMap[dateStr];
-                if (icon) {
-                    const iconEl = document.createElement("div");
-                    iconEl.className = "cal-icon";
-                    iconEl.textContent = icon;
-                    cell.appendChild(iconEl);
-                }
-
-                grid.appendChild(cell);
-            }
-        }
-
-        function changeCalendarMonth(delta) {
-            if (_calViewYear === null || _calViewMonth === null) return;
-
-            let m = _calViewMonth + delta;
-            let y = _calViewYear;
-
-            while (m < 0) { m += 12; y -= 1; }
-            while (m > 11) { m -= 12; y += 1; }
-
-            _calViewMonth = m;
-            _calViewYear = y;
-
-            paintCalendar();
-
-            if (typeof mpTrack === "function") {
-                mpTrack("calendar_month_changed", {
-                    direction: delta > 0 ? "next" : "prev"
-                });
-            }
-        }
-
-        function setupCalendarNav() {
-            const prevBtn = getElement("cal-prev");
-            const nextBtn = getElement("cal-next");
-            if (prevBtn) prevBtn.addEventListener("click", () => changeCalendarMonth(-1));
-            if (nextBtn) nextBtn.addEventListener("click", () => changeCalendarMonth(1));
-        }
-
-
-/* =========================================================
-   EARTH SPHERE (Three.js)
-========================================================= */
-let earthInitialized = false;
-let earthRenderer = null;
-let earthScene = null;
-let earthCamera = null;
-let earthMesh = null;
-let earthMaterial = null;
-let earthSunDirection = new THREE.Vector3(1, 0, 0);
-let currentLocationMarker = null;
-let savedLocationMarkers = [];
-
-let earthClouds = null;
-let cloudsVisible = true;
-let clockTimer = null;
-
-let earthStars = null;
-let starsVisible = true;
-let globeLockedOnCity = false;
-
-let camRadius = 3;
-let camPhi = Math.PI / 2;
-let camTheta = 0;
-let camTargetPhi = camPhi;
-let camTargetTheta = camTheta;
-let camAnimating = false;
-let autoRotatePausedUntil = 0;
-let globeInView = true;
-const AUTO_ROTATE_SPEED = 0.0025;
-const AUTO_ROTATE_PAUSE_MS = 15000;
-
-/* Convert latitude/longitude to a 3D position on a sphere */
-function latLonToVector3(lat, lon, radius = 1) {
-    const phi = (90 - lat) * Math.PI / 180;
-    const theta = (lon + 180) * Math.PI / 180;
-    const x = -radius * Math.sin(phi) * Math.cos(theta);
-    const y =  radius * Math.cos(phi);
-    const z =  radius * Math.sin(phi) * Math.sin(theta);
-    return new THREE.Vector3(x, y, z);
-}
-
-/* Inverse: 3D point on sphere → lat/lon */
-function vector3ToLatLon(v) {
-    const r = v.length();
-    const lat = 90 - Math.acos(v.y / r) * 180 / Math.PI;
-    let lon = (Math.atan2(v.z, -v.x) * 180 / Math.PI) - 180;
-    lon = ((lon + 540) % 360) - 180;
-    return { lat, lon };
-}
-
-/* Compute the direction from earth's center to the sun */
-function getSunDirection() {
-    const now = new Date();
-    const utcHours = now.getUTCHours() + now.getUTCMinutes() / 60 + now.getUTCSeconds() / 3600;
-    const subsolarLon = -15 * (utcHours - 12);
-
-    const start = new Date(now.getUTCFullYear(), 0, 1);
-    const dayOfYear = Math.floor((now - start) / 86400000) + 1;
-    const decl = 23.44 * Math.sin(2 * Math.PI * (dayOfYear - 81) / 365);
-
-    return latLonToVector3(decl, subsolarLon, 1).normalize();
-}
-
-/* Remove a marker from the scene */
-function removeMarker(marker) {
-    if (!marker || !earthScene) return;
-    earthScene.remove(marker);
-    if (marker.geometry) marker.geometry.dispose();
-    if (marker.material) marker.material.dispose();
-}
-
-/* Create a floating text label sprite for the globe */
-function makeLabelSprite(text) {
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    canvas.width = 256;
-    canvas.height = 64;
-
-    ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
-    const r = 12;
-    ctx.beginPath();
-    ctx.moveTo(r, 0);
-    ctx.lineTo(canvas.width - r, 0);
-    ctx.quadraticCurveTo(canvas.width, 0, canvas.width, r);
-    ctx.lineTo(canvas.width, canvas.height - r);
-    ctx.quadraticCurveTo(canvas.width, canvas.height, canvas.width - r, canvas.height);
-    ctx.lineTo(r, canvas.height);
-    ctx.quadraticCurveTo(0, canvas.height, 0, canvas.height - r);
-    ctx.lineTo(0, r);
-    ctx.quadraticCurveTo(0, 0, r, 0);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.strokeStyle = "rgba(56, 189, 248, 0.8)";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    ctx.font = "bold 28px Arial, sans-serif";
-    ctx.fillStyle = "#ffffff";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-
-    const maxWidth = canvas.width - 20;
-    let displayText = text;
-    if (ctx.measureText(displayText).width > maxWidth) {
-        while (displayText.length > 3 &&
-               ctx.measureText(displayText + "…").width > maxWidth) {
-            displayText = displayText.slice(0, -1);
-        }
-        displayText += "…";
-    }
-    ctx.fillText(displayText, canvas.width / 2, canvas.height / 2);
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.minFilter = THREE.LinearFilter;
-
-    const material = new THREE.SpriteMaterial({
-        map: texture,
-        transparent: true,
-        depthTest: true,
-        depthWrite: false
-    });
-
-    const sprite = new THREE.Sprite(material);
-    sprite.scale.set(0.28, 0.07, 1);
-    return sprite;
-}
-
-/* Add a marker dot at a location */
-function addMarker(lat, lon, color, size = 0.025, radius = 1.015) {
-    const pos = latLonToVector3(lat, lon, radius);
-    const geo = new THREE.SphereGeometry(size, 12, 12);
-    const mat = new THREE.MeshBasicMaterial({ color });
-    const dot = new THREE.Mesh(geo, mat);
-    dot.position.copy(pos);
-    return dot;
-}
-
-/* Update the current-location marker */
-function updateCurrentMarker(lat, lon) {
-    if (!earthScene) return;
-    if (currentLocationMarker) {
-        removeMarker(currentLocationMarker);
-        currentLocationMarker = null;
-    }
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-
-    const group = new THREE.Group();
-    group.add(addMarker(lat, lon, 0xffffff, 0.03, 1.02));
-    group.add(addMarker(lat, lon, 0xff3b3b, 0.02, 1.025));
-
-    for (let i = 0; i < 2; i++) {
-        const ringGeo = new THREE.RingGeometry(0.04, 0.05, 32);
-        const ringMat = new THREE.MeshBasicMaterial({
-            color: 0xff5c5c,
-            side: THREE.DoubleSide,
-            transparent: true,
-            opacity: 0.75 - i * 0.3
-        });
-        const ring = new THREE.Mesh(ringGeo, ringMat);
-        ring.position.copy(latLonToVector3(lat, lon, 1.03 + i * 0.005));
-        ring.lookAt(0, 0, 0);
-        ring.userData.pulseOffset = i * 0.5;
-        group.add(ring);
-    }
-
-    earthScene.add(group);
-    currentLocationMarker = group;
-}
-
-/* Rebuild all saved-location markers (with name labels) */
-function updateSavedMarkers() {
-    if (!earthScene) return;
-    savedLocationMarkers.forEach(m => removeMarker(m));
-    savedLocationMarkers = [];
-
-    savedLocations.forEach(loc => {
-        if (!Number.isFinite(loc.lat) || !Number.isFinite(loc.lon)) return;
-
-        const marker = addMarker(loc.lat, loc.lon, 0x38bdf8, 0.018, 1.015);
-        earthScene.add(marker);
-        savedLocationMarkers.push(marker);
-
-        const labelText = loc.name || "Unknown";
-        const label = makeLabelSprite(labelText);
-        const pos = latLonToVector3(loc.lat, loc.lon, 1.08);
-        label.position.copy(pos);
-        earthScene.add(label);
-        savedLocationMarkers.push(label);
-    });
-}
-
-/* Rotate the camera to face a specific location */
-function rotateGlobeTo(lat, lon) {
-    if (!earthInitialized) return;
-    camTargetPhi = (90 - lat) * Math.PI / 180;
-    camTargetTheta = (lon + 180) * Math.PI / 180;
-
-    let dTheta = camTargetTheta - camTheta;
-    while (dTheta > Math.PI) { camTargetTheta -= 2 * Math.PI; dTheta = camTargetTheta - camTheta; }
-    while (dTheta < -Math.PI) { camTargetTheta += 2 * Math.PI; dTheta = camTargetTheta - camTheta; }
-
-    camAnimating = true;
-
-    if (globeLockedOnCity) {
-        autoRotatePausedUntil = Infinity;
-    } else {
-        autoRotatePausedUntil = Date.now() + AUTO_ROTATE_PAUSE_MS;
-    }
-}
-
-/* Click handler — convert clicked point to lat/lon and load weather */
-function onGlobeClick(event) {
-    if (!earthRenderer || !earthMesh || !earthCamera) return;
-
-    const rect = earthRenderer.domElement.getBoundingClientRect();
-    const mouse = new THREE.Vector2(
-        ((event.clientX - rect.left) / rect.width) * 2 - 1,
-        -((event.clientY - rect.top) / rect.height) * 2 + 1
-    );
-
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(mouse, earthCamera);
-
-    const intersects = raycaster.intersectObject(earthMesh);
-    if (!intersects.length) return;
-
-    const point = intersects[0].point;
-    const { lat, lon } = vector3ToLatLon(point);
-
-    const roundedLat = Math.round(lat * 100) / 100;
-    const roundedLon = Math.round(lon * 100) / 100;
-
-    showToast(`📍 Loading weather at ${roundedLat}°, ${roundedLon}°`);
-
-    getWeatherByLocation(roundedLat, roundedLon, `Point (${roundedLat}, ${roundedLon})`);
-}
-
-/* =========================================================
-   EARTH CLOCK (UTC time + instructions)
-========================================================= */
-function startEarthClock() {
-    if (clockTimer) return;
-
-    function tick() {
-        const el = getElement("earth-clock");
-        if (!el) return;
-
-        const now = new Date();
-        const utcHours = String(now.getUTCHours()).padStart(2, "0");
-        const utcMins  = String(now.getUTCMinutes()).padStart(2, "0");
-        const utcSecs  = String(now.getUTCSeconds()).padStart(2, "0");
-
-        el.textContent =
-            `🕒 UTC ${utcHours}:${utcMins}:${utcSecs}  •  ` +
-            `Drag to rotate · Scroll/pinch to zoom · Click to load weather`;
-    }
-
-    tick();
-    clockTimer = setInterval(tick, 1000);
-}
-
-
-/* =========================================================
-   EARTH INFO PANEL
-========================================================= */
-function formatTimezoneLabel(offsetSeconds) {
-    const totalMin = Math.round(Number(offsetSeconds) / 60);
-    const sign = totalMin >= 0 ? "+" : "-";
-    const abs = Math.abs(totalMin);
-    const h = Math.floor(abs / 60);
-    const m = abs % 60;
-    return `UTC${sign}${h}${m > 0 ? ":" + String(m).padStart(2, "0") : ""}`;
-}
-
-function renderEarthPanel(data) {
-    if (!data) return;
-
-    const nameEl = getElement("ei-name");
-    const coordsEl = getElement("ei-coords");
-    const tzEl = getElement("ei-tz");
-    const tempEl = getElement("ei-temp");
-    const condEl = getElement("ei-condition");
-    const sunriseEl = getElement("ei-sunrise");
-    const sunsetEl = getElement("ei-sunset");
-
-    const loc = data.searched_location || {};
-    const cityName = loc.name || data.name || "Unknown";
-    const state = loc.state || "";
-    const country = loc.country || data.sys?.country || "";
-    if (nameEl) nameEl.textContent = formatLocation(cityName, state, country);
-
-    if (coordsEl) {
-        const lat = data.coord?.lat;
-        const lon = data.coord?.lon;
-        if (Number.isFinite(lat) && Number.isFinite(lon)) {
-            const latDir = lat >= 0 ? "N" : "S";
-            const lonDir = lon >= 0 ? "E" : "W";
-            coordsEl.textContent =
-                `${Math.abs(lat).toFixed(2)}°${latDir}, ${Math.abs(lon).toFixed(2)}°${lonDir}`;
-        } else {
-            coordsEl.textContent = "--";
-        }
-    }
-
-    if (tzEl) tzEl.textContent = formatTimezoneLabel(data.timezone || 0);
-
-    const temp = Number(data.main?.temp);
-    if (tempEl) tempEl.textContent = `${formatTemp(temp)}${tempUnit()}`;
-
-    const w = data.weather?.[0] || {};
-    if (condEl) condEl.textContent = getConditionText(Number(w.id), w.description);
-
-    const tz = Number(data.timezone || 0);
-    if (sunriseEl) sunriseEl.textContent = formatTimeFromUnix(data.sys?.sunrise, tz);
-    if (sunsetEl) sunsetEl.textContent = formatTimeFromUnix(data.sys?.sunset, tz);
-
-    const btn = getElement("earth-save-btn");
-    if (btn) {
-        btn.onclick = () => {
-            const saveBtn = getElement("save-location-btn");
-            if (saveBtn) saveBtn.click();
-            updateEarthSaveButton();
-        };
-        updateEarthSaveButton();
-    }
-
-    const shareBtn = getElement("earth-share-btn");
-    if (shareBtn) {
-        shareBtn.onclick = () => {
-            if (typeof shareCurrentWeather === "function") {
-                shareCurrentWeather();
-            }
-        };
-    }
-}
-
-function updateEarthSaveButton() {
-    const btn = getElement("earth-save-btn");
-    if (!btn) return;
-
-    const loc = window._loadedLocation;
-    if (!loc || !Number.isFinite(loc.lat) || !Number.isFinite(loc.lon)) {
-        btn.textContent = "♡ Save this place";
-        btn.classList.remove("saved");
+let _calViewYear = null;
+let _calViewMonth = null;      // 0-11
+let _calWeatherMap = {};
+let _calTodayKey = "";         // "YYYY-MM-DD"
+
+function renderCalendar(data) {
+    const grid = getElement("calendar-grid");
+    const label = getElement("cal-month-label");
+    if (!grid || !label) return;
+
+    if (!data || !Array.isArray(data.list) || data.list.length === 0) {
+        grid.innerHTML = "";
+        label.textContent = "—";
         return;
     }
 
-    if (isLocationSaved(loc.lat, loc.lon)) {
-        btn.textContent = "♥ Saved";
-        btn.classList.add("saved");
-    } else {
-        btn.textContent = "♡ Save this place";
-        btn.classList.remove("saved");
+    const timezone = Number(data.timezone || 0);
+
+    const locationEl = getElement("calendar-location");
+    if (locationEl) {
+        const loc = data.searched_location || {};
+        const city = data.city || {};
+        const name = loc.name || city.name || "";
+        const state = loc.state || "";
+        const country = loc.country || city.country || "";
+        locationEl.textContent = formatLocation(name, state, country);
+    }
+
+    const weatherMap = {};
+    const dateGroups = {};
+    data.list.forEach(item => {
+        if (!item.dt_txt) return;
+        const dateString = item.dt_txt.split(" ")[0];
+        if (!dateGroups[dateString]) dateGroups[dateString] = [];
+        dateGroups[dateString].push(item);
+    });
+
+    Object.keys(dateGroups).forEach(dateString => {
+        const entries = dateGroups[dateString];
+        const daytimeEntries = entries.filter(item =>
+            String(item.weather?.[0]?.icon || "").endsWith("d")
+        );
+        const candidates = daytimeEntries.length > 0 ? daytimeEntries : entries;
+        let rep = candidates[0];
+        const priority = weather => {
+            const id = Number(weather?.id);
+            if (id >= 200 && id <= 232) return 6;
+            if (id >= 500 && id <= 531) return 5;
+            if (id >= 300 && id <= 321) return 4;
+            if (id >= 600 && id <= 622) return 4;
+            if (id >= 701 && id <= 781) return 3;
+            if (id === 804) return 2;
+            if (id >= 801 && id <= 803) return 1;
+            return 0;
+        };
+        candidates.forEach(item => {
+            if (priority(item.weather?.[0]) > priority(rep.weather?.[0])) rep = item;
+        });
+        const w = rep.weather?.[0] || {};
+        weatherMap[dateString] = getWeatherIcon(Number(w.id), w.icon);
+    });
+
+    const now = Math.floor(Date.now() / 1000);
+    const localNow = new Date((now + timezone) * 1000);
+    const todayYear = localNow.getUTCFullYear();
+    const todayMonth = localNow.getUTCMonth();
+    const todayDate = localNow.getUTCDate();
+
+    _calWeatherMap = weatherMap;
+    _calTodayKey = `${todayYear}-${String(todayMonth + 1).padStart(2, "0")}-${String(todayDate).padStart(2, "0")}`;
+
+    _calViewYear = todayYear;
+    _calViewMonth = todayMonth;
+
+    paintCalendar();
+}
+
+function paintCalendar() {
+    const grid = getElement("calendar-grid");
+    const label = getElement("cal-month-label");
+    if (!grid || !label) return;
+    if (_calViewYear === null || _calViewMonth === null) return;
+
+    const year = _calViewYear;
+    const month = _calViewMonth;
+
+    const monthNames = [
+        "January","February","March","April","May","June",
+        "July","August","September","October","November","December"
+    ];
+    label.textContent = `${monthNames[month]} ${year}`;
+
+    const firstDay = new Date(Date.UTC(year, month, 1));
+    const startWeekday = firstDay.getUTCDay();
+    const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+
+    grid.innerHTML = "";
+
+    for (let i = 0; i < startWeekday; i++) {
+        const cell = document.createElement("div");
+        cell.className = "cal-day empty";
+        grid.appendChild(cell);
+    }
+
+    for (let day = 1; day <= daysInMonth; day++) {
+        const cell = document.createElement("div");
+        cell.className = "cal-day";
+
+        const dateStr =
+            `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
+        if (dateStr === _calTodayKey) cell.classList.add("today");
+
+        const dateEl = document.createElement("div");
+        dateEl.className = "cal-date";
+        dateEl.textContent = day;
+        cell.appendChild(dateEl);
+
+        const icon = _calWeatherMap[dateStr];
+        if (icon) {
+            const iconEl = document.createElement("div");
+            iconEl.className = "cal-icon";
+            iconEl.textContent = icon;
+            cell.appendChild(iconEl);
+        }
+
+        grid.appendChild(cell);
     }
 }
 
-/* Initialize the whole scene */
-function initEarth() {
-    if (earthInitialized) return;
+function changeCalendarMonth(delta) {
+    if (_calViewYear === null || _calViewMonth === null) return;
 
-    const container = getElement("earth-container");
-    if (!container) return;
-    if (typeof THREE === "undefined") {
-        console.warn("Three.js not loaded — Earth skipped");
-        return;
-    }
+    let m = _calViewMonth + delta;
+    let y = _calViewYear;
 
-    const size = container.clientWidth || 320;
+    while (m < 0) { m += 12; y -= 1; }
+    while (m > 11) { m -= 12; y += 1; }
 
-    earthScene = new THREE.Scene();
+    _calViewMonth = m;
+    _calViewYear = y;
 
-    earthCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
-    earthCamera.position.set(camRadius, 0, 0);
-    earthCamera.lookAt(0, 0, 0);
+    paintCalendar();
 
-    earthRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    earthRenderer.setSize(size, size);
-    earthRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-    const canvas = earthRenderer.domElement;
-    canvas.style.touchAction = "none";
-    canvas.style.userSelect = "none";
-    canvas.style.cursor = "grab";
-    container.appendChild(canvas);
-
-    const geometry = new THREE.SphereGeometry(1, 64, 64);
-
-    const textureLoader = new THREE.TextureLoader();
-    const earthTexture = textureLoader.load(
-        "https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg",
-        () => {
-            const loader = getElement("earth-loader");
-            if (loader) {
-                loader.classList.add("hidden");
-                setTimeout(() => loader.remove(), 600);
-            }
-        }
-    );
-
-    earthMaterial = new THREE.ShaderMaterial({
-        uniforms: {
-            earthMap: { value: earthTexture },
-            sunDirection: { value: earthSunDirection }
-        },
-        vertexShader: `
-            varying vec2 vUv;
-            varying vec3 vWorldNormal;
-            void main() {
-                vUv = uv;
-                vWorldNormal = normalize(mat3(modelMatrix) * normal);
-                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-            }
-        `,
-        fragmentShader: `
-            uniform sampler2D earthMap;
-            uniform vec3 sunDirection;
-            varying vec2 vUv;
-            varying vec3 vWorldNormal;
-            void main() {
-                vec3 dayColor = texture2D(earthMap, vUv).rgb;
-                vec3 nightColor = dayColor * 0.12 + vec3(0.02, 0.05, 0.14);
-                float d = dot(normalize(vWorldNormal), normalize(sunDirection));
-                float mixAmount = smoothstep(-0.15, 0.15, d);
-                vec3 finalColor = mix(nightColor, dayColor, mixAmount);
-                gl_FragColor = vec4(finalColor, 1.0);
-            }
-        `
-    });
-
-    earthMesh = new THREE.Mesh(geometry, earthMaterial);
-    earthScene.add(earthMesh);
-
-    earthScene.add(new THREE.AmbientLight(0xffffff, 0.15));
-    const sunLight = new THREE.DirectionalLight(0xffffff, 0.9);
-    sunLight.position.set(5, 3, 5);
-    earthScene.add(sunLight);
-
-    const cloudTexture = textureLoader.load(
-        "https://threejs.org/examples/textures/planets/earth_clouds_1024.png"
-    );
-    const cloudGeometry = new THREE.SphereGeometry(1.012, 64, 64);
-    const cloudMaterial = new THREE.MeshLambertMaterial({
-        map: cloudTexture,
-        transparent: true,
-        opacity: 0.55,
-        depthWrite: false
-    });
-    earthClouds = new THREE.Mesh(cloudGeometry, cloudMaterial);
-    earthClouds.visible = cloudsVisible;
-    earthScene.add(earthClouds);
-
-    const starGeo = new THREE.BufferGeometry();
-    const starCount = 1500;
-    const starPositions = new Float32Array(starCount * 3);
-    for (let i = 0; i < starCount; i++) {
-        const r = 30 + Math.random() * 20;
-        const theta = Math.random() * Math.PI * 2;
-        const phi = Math.acos(2 * Math.random() - 1);
-        starPositions[i * 3]     = r * Math.sin(phi) * Math.cos(theta);
-        starPositions[i * 3 + 1] = r * Math.cos(phi);
-        starPositions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
-    }
-    starGeo.setAttribute("position", new THREE.BufferAttribute(starPositions, 3));
-
-    const starMat = new THREE.PointsMaterial({
-        color: 0xffffff,
-        size: 0.35,
-        sizeAttenuation: true,
-        transparent: true,
-        opacity: 0.9
-    });
-    earthStars = new THREE.Points(starGeo, starMat);
-    earthStars.visible = starsVisible;
-    earthScene.add(earthStars);
-
-    /* Interaction state */
-    const DRAG_SENSITIVITY = 0.006;
-    const MIN_ZOOM = 1.5;
-    const MAX_ZOOM = 5.0;
-
-    let activePointers = new Map();
-    let dragPointerId = null;
-    let isDragging = false;
-    let wasDragged = false;
-    let lastX = 0, lastY = 0;
-    let dragStartTime = 0;
-    let pinchStartDist = 0;
-    let pinchStartRadius = camRadius;
-
-    function pauseAutoRotate(ms) {
-        autoRotatePausedUntil = Date.now() + ms;
-    }
-
-    canvas.addEventListener("pointerdown", (e) => {
-        canvas.setPointerCapture(e.pointerId);
-        activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-        if (activePointers.size === 1) {
-            isDragging = true;
-            wasDragged = false;
-            dragStartTime = Date.now();
-            lastX = e.clientX;
-            lastY = e.clientY;
-            dragPointerId = e.pointerId;
-            canvas.style.cursor = "grabbing";
-            pauseAutoRotate(60000);
-        } else if (activePointers.size === 2) {
-            isDragging = false;
-            const [p1, p2] = Array.from(activePointers.values());
-            pinchStartDist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
-            pinchStartRadius = camRadius;
-        }
-    });
-
-    canvas.addEventListener("pointermove", (e) => {
-        if (!activePointers.has(e.pointerId)) return;
-        activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-        if (activePointers.size === 2) {
-            const [p1, p2] = Array.from(activePointers.values());
-            const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
-            if (pinchStartDist > 0) {
-                const scale = pinchStartDist / dist;
-                camRadius = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, pinchStartRadius * scale));
-            }
-            return;
-        }
-
-        if (isDragging && e.pointerId === dragPointerId) {
-            const dx = e.clientX - lastX;
-            const dy = e.clientY - lastY;
-            if (Math.abs(dx) + Math.abs(dy) > 3) wasDragged = true;
-            lastX = e.clientX;
-            lastY = e.clientY;
-
-            camTheta += dx * DRAG_SENSITIVITY;
-            camPhi   -= dy * DRAG_SENSITIVITY;
-            camPhi = Math.max(0.15, Math.min(Math.PI - 0.15, camPhi));
-
-            camAnimating = false;
-            camTargetPhi = camPhi;
-            camTargetTheta = camTheta;
-        }
-    });
-
-    function endPointer(e) {
-        activePointers.delete(e.pointerId);
-
-        if (e.pointerId === dragPointerId) {
-            const quickTap = !wasDragged && (Date.now() - dragStartTime < 400);
-            isDragging = false;
-            dragPointerId = null;
-            canvas.style.cursor = "grab";
-
-            if (quickTap) {
-                onGlobeClick(e);
-            }
-        }
-    }
-    canvas.addEventListener("pointerup", endPointer);
-    canvas.addEventListener("pointercancel", endPointer);
-
-    canvas.addEventListener("wheel", (e) => {
-        e.preventDefault();
-        camRadius += e.deltaY * 0.003;
-        camRadius = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, camRadius));
-        pauseAutoRotate(10000);
-    }, { passive: false });
-
-    canvas.addEventListener("dblclick", () => {
-        autoRotatePausedUntil = 0;
-        camAnimating = false;
-    });
-
-    /* Animation loop */
-    let lastSunUpdate = 0;
-
-    function animate() {
-        requestAnimationFrame(animate);
-
-        if (!globeInView) return;
-
-        const now = Date.now();
-
-        if (now - lastSunUpdate > 30000) {
-            earthSunDirection.copy(getSunDirection());
-            lastSunUpdate = now;
-        }
-
-        if (now > autoRotatePausedUntil && !camAnimating && activePointers.size === 0) {
-            camTheta += AUTO_ROTATE_SPEED;
-        }
-
-        if (camAnimating) {
-            camPhi   += (camTargetPhi   - camPhi)   * 0.08;
-            camTheta += (camTargetTheta - camTheta) * 0.08;
-            if (Math.abs(camTargetPhi - camPhi) < 0.005 &&
-                Math.abs(camTargetTheta - camTheta) < 0.005) {
-                camPhi = camTargetPhi;
-                camTheta = camTargetTheta;
-                camAnimating = false;
-            }
-        }
-
-        earthCamera.position.x = camRadius * Math.sin(camPhi) * Math.cos(camTheta);
-        earthCamera.position.y = camRadius * Math.cos(camPhi);
-        earthCamera.position.z = camRadius * Math.sin(camPhi) * Math.sin(camTheta);
-        earthCamera.lookAt(0, 0, 0);
-
-        if (earthClouds && earthClouds.visible) {
-            earthClouds.rotation.y += 0.00035;
-        }
-
-        if (currentLocationMarker) {
-            const t = performance.now() * 0.001;
-            currentLocationMarker.children.forEach(child => {
-                if (child.userData && child.userData.pulseOffset !== undefined) {
-                    const phase = (t + child.userData.pulseOffset) % 2;
-                    const scale = 1 + phase * 0.7;
-                    child.scale.set(scale, scale, scale);
-                    if (child.material) {
-                        child.material.opacity = Math.max(0, 0.75 - phase * 0.5);
-                    }
-                }
-            });
-        }
-
-        earthRenderer.render(earthScene, earthCamera);
-    }
-    animate();
-
-    window.addEventListener("resize", () => {
-        if (!earthRenderer || !earthCamera) return;
-        const newSize = container.clientWidth || 320;
-        earthRenderer.setSize(newSize, newSize);
-        earthCamera.aspect = 1;
-        earthCamera.updateProjectionMatrix();
-    });
-
-    const toggleBtn = getElement("toggle-clouds");
-    if (toggleBtn) {
-        toggleBtn.addEventListener("click", () => {
-            cloudsVisible = !cloudsVisible;
-            if (earthClouds) earthClouds.visible = cloudsVisible;
-            toggleBtn.classList.toggle("off", !cloudsVisible);
-            toggleBtn.textContent = cloudsVisible ? "☁️ Clouds" : "☁️ Clouds Off";
+    if (typeof mpTrack === "function") {
+        mpTrack("calendar_month_changed", {
+            direction: delta > 0 ? "next" : "prev"
         });
     }
+}
 
-    const starBtn = getElement("toggle-stars");
-    if (starBtn) {
-        starBtn.addEventListener("click", () => {
-            starsVisible = !starsVisible;
-            if (earthStars) earthStars.visible = starsVisible;
-            starBtn.classList.toggle("stars-off", !starsVisible);
-        });
-    }
-
-    const lockBtn = getElement("toggle-lock");
-    if (lockBtn) {
-        lockBtn.textContent = globeLockedOnCity ? "🔒 Locked on city" : "🔓 Auto-rotate";
-        lockBtn.addEventListener("click", () => {
-            globeLockedOnCity = !globeLockedOnCity;
-            lockBtn.textContent = globeLockedOnCity ? "🔒 Locked on city" : "🔓 Auto-rotate";
-            if (globeLockedOnCity) {
-                autoRotatePausedUntil = Infinity;
-            } else {
-                autoRotatePausedUntil = 0;
-            }
-        });
-    }
-
-    if ("IntersectionObserver" in window) {
-        const io = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                globeInView = entry.isIntersecting;
-            });
-        }, { threshold: 0.05 });
-        io.observe(container);
-    }
-
-    startEarthClock();
-
-    earthInitialized = true;
-    updateSavedMarkers();
+function setupCalendarNav() {
+    const prevBtn = getElement("cal-prev");
+    const nextBtn = getElement("cal-next");
+    if (prevBtn) prevBtn.addEventListener("click", () => changeCalendarMonth(-1));
+    if (nextBtn) nextBtn.addEventListener("click", () => changeCalendarMonth(1));
 }
 
 
@@ -2528,7 +1773,6 @@ function useMyLocation() {
         mpTrack("use_my_location");
     }
 
-    // Helper: wrap the callback-based API in a promise
     function getPosition(options) {
         return new Promise((resolve, reject) => {
             navigator.geolocation.getCurrentPosition(resolve, reject, options);
@@ -2539,34 +1783,30 @@ function useMyLocation() {
         let position = null;
         let lastError = null;
 
-        // ---------- Try 1: Fast lookup (IP/WiFi) ----------
-        // Works on every device, almost always succeeds within 5 seconds.
         try {
             if (errorMessage) errorMessage.textContent = "📍 Finding your location...";
             position = await getPosition({
-                enableHighAccuracy: false,       // ⭐ fast — uses network location
+                enableHighAccuracy: false,
                 timeout: 7000,
-                maximumAge: 5 * 60 * 1000        // accept location up to 5 min old
+                maximumAge: 5 * 60 * 1000
             });
         } catch (err) {
             lastError = err;
         }
 
-        // ---------- Try 2: GPS fallback (only if we're allowed and Try 1 failed) ----------
         if (!position && lastError && lastError.code !== lastError.PERMISSION_DENIED) {
             try {
                 if (errorMessage) errorMessage.textContent = "📡 Improving accuracy...";
                 position = await getPosition({
-                    enableHighAccuracy: true,    // slower but more precise
+                    enableHighAccuracy: true,
                     timeout: 12000,
-                    maximumAge: 60 * 1000        // accept up to 1 min old
+                    maximumAge: 60 * 1000
                 });
             } catch (err) {
                 lastError = err;
             }
         }
 
-        // ---------- Handle result ----------
         if (locationBtn) {
             locationBtn.disabled = false;
             locationBtn.textContent = "📍 Use My Location";
@@ -2586,7 +1826,6 @@ function useMyLocation() {
             return;
         }
 
-        // ---------- Show error to user ----------
         if (errorMessage) {
             if (lastError && lastError.code === lastError.PERMISSION_DENIED) {
                 errorMessage.textContent =
@@ -2772,7 +2011,6 @@ function stopAutoRefresh() {
     }
 }
 
-/* Refresh instantly when the user comes back to the tab */
 let lastFocusRefresh = 0;
 function setupVisibilityRefresh() {
     document.addEventListener("visibilitychange", () => {
@@ -2834,8 +2072,10 @@ function renderSavedLocations() {
         container.appendChild(chip);
     });
 
-    updateSavedMarkers();
-    updateEarthSaveButton();
+    if (window.EarthGlobe) {
+        window.EarthGlobe.updateSavedMarkers(savedLocations);
+        window.EarthGlobe.updateSaveButton();
+    }
     renderCitiesGlance();
 }
 
@@ -3458,7 +2698,7 @@ function setupOutsideClick() {
 ========================================================= */
 function mpTrack(eventName, properties = {}) {
     if (typeof mixpanel === "undefined") return;
-    if (typeof mixpanel.track !== "function") return;   // ⭐ NEW — stubbed but not initialized
+    if (typeof mixpanel.track !== "function") return;
     try {
         mixpanel.track(eventName, {
             ...properties,
@@ -3473,24 +2713,44 @@ function mpTrack(eventName, properties = {}) {
 
 
 /* =========================================================
+   HELPERS BRIDGE — exposed for earth.js
+========================================================= */
+window.WeatherHelpers = {
+    getElement,
+    formatLocation,
+    formatTemp,
+    tempUnit,
+    speedUnit,
+    convertTemp,
+    convertSpeed,
+    getConditionText,
+    getWeatherIcon,
+    formatTimeFromUnix,
+    isLocationSaved,
+    showToast,
+    getWeatherByLocation,
+    shareCurrentWeather,
+    mpTrack,
+    getSavedLocations: () => savedLocations
+};
+
+
+/* =========================================================
    DEFAULT WEATHER
 ========================================================= */
 async function loadDefaultWeather() {
     const input = getElement("city-input");
 
-    // 0. Show cached data instantly (0 ms) — then fetch fresh in background
     const cachedWeather = loadWeatherFromCache();
     const cachedForecast = loadForecastFromCache();
 
     if (cachedWeather) {
-        // Render cached weather right away
         displayWeather(cachedWeather);
         if (cachedForecast) {
             renderHourlyForecast(cachedForecast);
             renderForecast(cachedForecast);
         }
 
-        // Now fetch fresh data in background — prefer coordinates for precision
         const lastCoordsRaw = localStorage.getItem("weatherLastCoords");
         if (lastCoordsRaw) {
             try {
@@ -3503,7 +2763,6 @@ async function loadDefaultWeather() {
             } catch (e) { /* fall through */ }
         }
 
-        // Fallback: name-based restore
         const lastCity = localStorage.getItem("weatherLastCity");
         if (lastCity) {
             if (input) input.value = lastCity;
@@ -3520,7 +2779,6 @@ async function loadDefaultWeather() {
         return;
     }
 
-    // 1. No cache — restore last location (prefer coordinates for precision)
     const lastCoordsRaw = localStorage.getItem("weatherLastCoords");
     if (lastCoordsRaw) {
         try {
@@ -3540,7 +2798,6 @@ async function loadDefaultWeather() {
         return;
     }
 
-    // 2. First visit — try IP-based location (no permission needed)
     if (input) input.value = "Finding your location...";
 
     try {
@@ -3567,7 +2824,6 @@ async function loadDefaultWeather() {
         console.warn("IP geolocation failed:", err);
     }
 
-    // 3. Everything failed — fall back to Kisumu
     if (input) input.value = "Kisumu";
     getWeather("Kisumu");
 }
@@ -3601,7 +2857,14 @@ document.addEventListener("DOMContentLoaded", () => {
     setupBackToTop();
     setupCalendarNav();
     setupFeedback();
-    initEarth();
+
+    // ⭐ Earth globe is initialised by earth.js
+    if (window.EarthGlobe) window.EarthGlobe.init();
+
+    // ⭐ Precipitation radar
+    initRadarMap();
+    setupRadarControls();
+    loadRadarFrames();
 
     updateDateTime();
     setInterval(updateDateTime, 1000);
@@ -3642,3 +2905,145 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 });
+
+
+/* =========================================================
+   PRECIPITATION RADAR MAP
+========================================================= */
+let radarMap = null;
+let radarLayer = null;
+let radarFrames = [];
+let radarCurrentFrame = 0;
+let radarPlayTimer = null;
+let radarInitialized = false;
+
+function initRadarMap() {
+    if (radarInitialized) return;
+
+    const mapEl = document.getElementById("radar-map");
+    if (!mapEl) {
+        console.warn("Radar: #radar-map not found in HTML");
+        return;
+    }
+    if (typeof L === "undefined") {
+        console.warn("Radar: Leaflet (L) not loaded");
+        return;
+    }
+
+    radarMap = L.map("radar-map", {
+        center: [0, 0],
+        zoom: 6,
+        zoomControl: true,
+        attributionControl: false
+    });
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        subdomains: "abc"
+    }).addTo(radarMap);
+
+    radarInitialized = true;
+}
+
+async function loadRadarFrames() {
+    try {
+        const res = await fetch("https://api.rainviewer.com/public/weather-maps.json");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        const host = data.host || "https://tilecache.rainviewer.com";
+        const past = (data.radar && data.radar.past) || [];
+
+        radarFrames = past.map((frame) => ({
+            time: frame.time,
+            path: frame.path,
+            url: `${host}${frame.path}/256/{z}/{x}/{y}/4/1_1.png`
+        }));
+
+        if (radarFrames.length === 0) return;
+
+        radarCurrentFrame = radarFrames.length - 1;
+        renderRadarFrame();
+        updateRadarTime();
+
+        const playBtn = document.getElementById("radar-play");
+        if (playBtn) playBtn.disabled = false;
+    } catch (err) {
+        console.warn("Radar frames failed to load:", err);
+    }
+}
+
+function renderRadarFrame() {
+    if (!radarMap || radarFrames.length === 0) return;
+
+    const frame = radarFrames[radarCurrentFrame];
+    if (!frame) return;
+
+    if (radarLayer) {
+        radarMap.removeLayer(radarLayer);
+        radarLayer = null;
+    }
+
+    radarLayer = L.tileLayer(frame.url, {
+        opacity: 0.75,
+        transparent: true,
+        zIndex: 10
+    }).addTo(radarMap);
+}
+
+function updateRadarTime() {
+    const el = document.getElementById("radar-time");
+    if (!el || radarFrames.length === 0) return;
+
+    const frame = radarFrames[radarCurrentFrame];
+    if (!frame) return;
+
+    const d = new Date(frame.time * 1000);
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    el.textContent = `${hh}:${mm}`;
+}
+
+function radarStep(delta) {
+    if (radarFrames.length === 0) return;
+    radarCurrentFrame = (radarCurrentFrame + delta + radarFrames.length) % radarFrames.length;
+    renderRadarFrame();
+    updateRadarTime();
+}
+
+function radarTogglePlay() {
+    const btn = document.getElementById("radar-play");
+    if (!btn) return;
+
+    if (radarPlayTimer) {
+        clearInterval(radarPlayTimer);
+        radarPlayTimer = null;
+        btn.textContent = "▶ Play";
+        return;
+    }
+
+    btn.textContent = "⏸ Pause";
+    radarPlayTimer = setInterval(() => radarStep(1), 700);
+}
+
+function setRadarLocation(lat, lon, label) {
+    if (!radarInitialized) return;
+
+    radarMap.setView([lat, lon], 7, { animate: true });
+
+    const el = document.getElementById("radar-location");
+    if (el && label) el.textContent = label;
+}
+
+function setupRadarControls() {
+    const prev = document.getElementById("radar-prev");
+    const next = document.getElementById("radar-next");
+    const play = document.getElementById("radar-play");
+
+    if (prev) prev.addEventListener("click", () => radarStep(-1));
+    if (next) next.addEventListener("click", () => radarStep(1));
+    if (play) {
+        play.disabled = true;
+        play.addEventListener("click", radarTogglePlay);
+    }
+}

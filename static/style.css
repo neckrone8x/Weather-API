@@ -1692,6 +1692,7 @@ textarea.feedback-input {
 /* Sections need extra scroll margin for the sticky nav */
 #section-now,
 #section-hourly,
+#section-radar,
 #section-forecast,
 #section-calendar,
 #section-cities,
@@ -2225,4 +2226,107 @@ textarea.feedback-input {
 .hourly-card,
 .forecast-day {
     animation: cardEnter 0.45s ease-out both;
+}
+/* =========================================================
+   PRECIPITATION RADAR MAP
+========================================================= */
+.radar-section {
+    margin-top: 40px;
+}
+
+.radar-container {
+    width: 100%;
+    max-width: 900px;
+    margin: 0 auto;
+    background: rgba(255, 255, 255, 0.10);
+    border-radius: 14px;
+    padding: 12px;
+}
+
+#radar-map {
+    width: 100%;
+    height: 400px;
+    border-radius: 10px;
+    background: #0f172a;
+    z-index: 1;
+}
+
+.radar-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 12px;
+    padding: 0 4px;
+}
+
+.radar-btn {
+    background: rgba(255, 255, 255, 0.12);
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    color: white;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.15s;
+    white-space: nowrap;
+}
+
+.radar-btn:hover {
+    background: rgba(255, 255, 255, 0.24);
+    transform: translateY(-1px);
+}
+
+.radar-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.radar-time {
+    font-size: 13px;
+    opacity: 0.8;
+    font-variant-numeric: tabular-nums;
+    min-width: 90px;
+    text-align: center;
+    color: #fef08a;
+}
+
+.radar-attribution {
+    text-align: center;
+    margin-top: 8px;
+    font-size: 11px;
+    opacity: 0.55;
+}
+
+.radar-attribution a {
+    color: rgba(255, 255, 255, 0.75);
+    text-decoration: none;
+}
+
+.radar-attribution a:hover {
+    text-decoration: underline;
+}
+
+/* Dim base map so radar is readable */
+.leaflet-tile-pane .leaflet-layer:first-child img {
+    filter: brightness(0.55) contrast(1.1) saturate(0.7);
+}
+
+/* Leaflet zoom buttons — dark theme */
+.leaflet-control-zoom a {
+    background: rgba(15, 23, 42, 0.9) !important;
+    color: white !important;
+    border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+.leaflet-control-zoom a:hover {
+    background: rgba(30, 41, 59, 0.95) !important;
+}
+
+@media (max-width: 600px) {
+    #radar-map { height: 320px; }
+    .radar-controls { gap: 8px; }
+    .radar-btn { padding: 7px 12px; font-size: 12px; }
+    .radar-time { font-size: 12px; min-width: 80px; }
 }
