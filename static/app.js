@@ -2528,16 +2528,54 @@ function useMyLocation() {
         mpTrack("use_my_location");
     }
 
-    navigator.geolocation.getCurrentPosition(
-        position => {
+    // Helper: wrap the callback-based API in a promise
+    function getPosition(options) {
+        return new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, options);
+        });
+    }
+
+    (async () => {
+        let position = null;
+        let lastError = null;
+
+        // ---------- Try 1: Fast lookup (IP/WiFi) ----------
+        // Works on every device, almost always succeeds within 5 seconds.
+        try {
+            if (errorMessage) errorMessage.textContent = "📍 Finding your location...";
+            position = await getPosition({
+                enableHighAccuracy: false,       // ⭐ fast — uses network location
+                timeout: 7000,
+                maximumAge: 5 * 60 * 1000        // accept location up to 5 min old
+            });
+        } catch (err) {
+            lastError = err;
+        }
+
+        // ---------- Try 2: GPS fallback (only if we're allowed and Try 1 failed) ----------
+        if (!position && lastError && lastError.code !== lastError.PERMISSION_DENIED) {
+            try {
+                if (errorMessage) errorMessage.textContent = "📡 Improving accuracy...";
+                position = await getPosition({
+                    enableHighAccuracy: true,    // slower but more precise
+                    timeout: 12000,
+                    maximumAge: 60 * 1000        // accept up to 1 min old
+                });
+            } catch (err) {
+                lastError = err;
+            }
+        }
+
+        // ---------- Handle result ----------
+        if (locationBtn) {
+            locationBtn.disabled = false;
+            locationBtn.textContent = "📍 Use My Location";
+        }
+
+        if (position) {
             const latitude = position.coords.latitude;
             const longitude = position.coords.longitude;
             const accuracy = position.coords.accuracy;
-
-            if (locationBtn) {
-                locationBtn.disabled = false;
-                locationBtn.textContent = "📍 Use My Location";
-            }
 
             if (errorMessage) {
                 errorMessage.textContent =
@@ -2545,31 +2583,33 @@ function useMyLocation() {
             }
 
             getWeatherByLocation(latitude, longitude, `Your Location (±${Math.round(accuracy)}m)`);
-        },
-        error => {
-            console.error("Geolocation error:", error);
-            if (locationBtn) {
-                locationBtn.disabled = false;
-                locationBtn.textContent = "📍 Use My Location";
-            }
-            if (errorMessage) {
-                if (error.code === error.PERMISSION_DENIED) {
-                    errorMessage.textContent = "Location permission was denied. Please allow location access.";
-                } else if (error.code === error.POSITION_UNAVAILABLE) {
-                    errorMessage.textContent = "Your location is unavailable. Try again or search manually.";
-                } else if (error.code === error.TIMEOUT) {
-                    errorMessage.textContent = "Location request timed out. Try again.";
-                } else {
-                    errorMessage.textContent = "Unable to get your location.";
-                }
-            }
-        },
-        {
-            enableHighAccuracy: true,
-            timeout: 15000,
-            maximumAge: 0
+            return;
         }
-    );
+
+        // ---------- Show error to user ----------
+        if (errorMessage) {
+            if (lastError && lastError.code === lastError.PERMISSION_DENIED) {
+                errorMessage.textContent =
+                    "Location permission was denied. Please allow access in your browser settings, or search manually.";
+            } else if (lastError && lastError.code === lastError.TIMEOUT) {
+                errorMessage.textContent =
+                    "Couldn't get an accurate location in time. Try searching for your city instead.";
+            } else if (lastError && lastError.code === lastError.POSITION_UNAVAILABLE) {
+                errorMessage.textContent =
+                    "Your location is unavailable right now. Please search for your city instead.";
+            } else {
+                errorMessage.textContent =
+                    "Couldn't detect your location. Try searching for your city instead.";
+            }
+        }
+
+        if (typeof mpTrack === "function") {
+            mpTrack("geolocation_failed", {
+                code: lastError && lastError.code,
+                message: lastError && lastError.message
+            });
+        }
+    })();
 }
 
 
@@ -3418,6 +3458,7 @@ function setupOutsideClick() {
 ========================================================= */
 function mpTrack(eventName, properties = {}) {
     if (typeof mixpanel === "undefined") return;
+    if (typeof mixpanel.track !== "function") return;   // ⭐ NEW — stubbed but not initialized
     try {
         mixpanel.track(eventName, {
             ...properties,

@@ -40,12 +40,15 @@
         })(document, window.mixpanel || []);
     </script>
 
-    <script>
-        mixpanel.init("4cc4b82ece523e34f4f1fdc2f8be91c9", {
-            track_pageview: true,
-            persistence: "localStorage",
-            ignore_dnt: false
-        });
+        <script>
+        // Only initialise Mixpanel in production (not on localhost)
+        if (location.hostname !== "127.0.0.1" && location.hostname !== "localhost") {
+            mixpanel.init("4cc4b82ece523e34f4f1fdc2f8be91c9", {
+                track_pageview: true,
+                persistence: "localStorage",
+                ignore_dnt: false
+            });
+        }
     </script>
 
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>

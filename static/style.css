@@ -444,6 +444,7 @@ body.night-theme {
     font-size: 19px;
     font-weight: bold;
     text-align: center;
+    letter-spacing: normal;
 }
 .forecast-location {
     margin-top: 5px;
@@ -1570,7 +1571,7 @@ textarea.feedback-input {
     display: grid;
     grid-template-columns: 1fr 1.15fr;
     gap: 24px;
-    align-items: start;
+    align-items: stretch;   /* ⭐ was: start */
     margin-top: 12px;
 }
 
@@ -1583,6 +1584,9 @@ textarea.feedback-input {
     border-radius: 18px;
     border: 1px solid rgba(255, 255, 255, 0.08);
     transition: background 0.6s ease, border-color 0.6s ease;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
 }
 
 .cw-hero .weather-icon {
