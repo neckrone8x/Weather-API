@@ -698,12 +698,19 @@ function startWeatherCanvas(type) {
     weatherParticleType = type;
 
     weatherParticles = [];
-        const isRain = type === "rain" || type === "rain-heavy";
+    
+    const isRain = type === "rain" || type === "rain-heavy";
     const isStars = type === "stars";
+    const isFog = type === "fog";
+
+    const _wData = window._currentWeatherData;
+    const _wId = Number(_wData?.weather?.[0]?.id || 0);
+    const isThunder = type === "rain-heavy" && _wId >= 200 && _wId <= 232;
+
     const count = type === "rain-heavy" ? 160 :
                   type === "rain"       ? 70  :
                   type === "snow"       ? 45  :
-                  isStars               ? 0   :
+                  (isStars || isFog)    ? 0   :
                                           45;
 
     for (let i = 0; i < count; i++) {
@@ -737,14 +744,21 @@ function startWeatherCanvas(type) {
 
         weatherCtx.clearRect(0, 0, weatherCanvas.width, weatherCanvas.height);
 
-        // ⭐ Stars render first — behind any particles
+        const t = performance.now();
+
+        // ⭐ Stars (clear nights)
         if (isStars) {
-            drawStarField(
-                weatherCtx,
-                weatherCanvas.width,
-                weatherCanvas.height,
-                performance.now()
-            );
+            drawStarField(weatherCtx, weatherCanvas.width, weatherCanvas.height, t);
+        }
+
+        // 🌫️ Fog layers
+        if (isFog) {
+            drawFogLayer(weatherCtx, weatherCanvas.width, weatherCanvas.height, t);
+        }
+
+        // ⚡ Lightning (thunderstorms only)
+        if (isThunder) {
+            drawLightning(weatherCtx, weatherCanvas.width, weatherCanvas.height, t);
         }
 
         weatherParticles.forEach(p => {
@@ -785,6 +799,165 @@ function startWeatherCanvas(type) {
     }
 
     draw();
+}
+
+/* =========================================================
+   LIGHTNING — forked bolts during thunderstorms
+========================================================= */
+const _lightning = {
+    active: false,
+    path: null,
+    startTime: 0,
+    nextStrike: 0
+};
+
+function drawLightning(ctx, w, h, t) {
+    if (!_lightning.nextStrike) {
+        _lightning.nextStrike = t + 2000 + Math.random() * 3000;
+    }
+
+    if (!_lightning.active && t >= _lightning.nextStrike) {
+        _lightning.active = true;
+        _lightning.startTime = t;
+        _lightning.path = generateBoltPath(w, h);
+        _lightning.nextStrike = t + 5000 + Math.random() * 7000;
+    }
+
+    if (!_lightning.active) return;
+
+    const age = t - _lightning.startTime;
+    const DURATION = 320;
+
+    if (age > DURATION) {
+        _lightning.active = false;
+        _lightning.path = null;
+        return;
+    }
+
+    // Fullscreen white flash for the first ~90ms
+    if (age < 90) {
+        const flash = 1 - age / 90;
+        ctx.fillStyle = `rgba(255, 255, 255, ${flash * 0.30})`;
+        ctx.fillRect(0, 0, w, h);
+    }
+
+    const alpha = Math.max(0, 1 - age / DURATION);
+    drawBolt(ctx, _lightning.path, alpha);
+}
+
+function generateBoltPath(w, h) {
+    const main = [];
+    let x = w * (0.25 + Math.random() * 0.5);
+    let y = -10;
+    main.push({ x, y });
+
+    const segments = 10 + Math.floor(Math.random() * 6);
+    const stepY = (h * 0.80) / segments;
+
+    for (let i = 0; i < segments; i++) {
+        x += (Math.random() - 0.5) * (w * 0.10);
+        y += stepY + (Math.random() * stepY * 0.35);
+        main.push({ x, y });
+    }
+
+    // 1-2 branches
+    const branches = [];
+    const branchCount = 1 + Math.floor(Math.random() * 2);
+    for (let b = 0; b < branchCount; b++) {
+        const startIdx = 3 + Math.floor(Math.random() * Math.max(1, segments - 5));
+        const startPt = main[startIdx] || main[0];
+        const branchPts = [{ x: startPt.x, y: startPt.y }];
+        let bx = startPt.x;
+        let by = startPt.y;
+        const bSegs = 3 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < bSegs; i++) {
+            bx += (Math.random() - 0.25) * (w * 0.09);
+            by += stepY * 0.7;
+            branchPts.push({ x: bx, y: by });
+        }
+        branches.push(branchPts);
+    }
+
+    return { main, branches };
+}
+
+function drawBolt(ctx, path, alpha) {
+    if (!path) return;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    // Outer glow
+    ctx.strokeStyle = `rgba(150, 195, 255, ${alpha * 0.55})`;
+    ctx.lineWidth = 8;
+    strokePath(ctx, path.main);
+    path.branches.forEach(b => strokePath(ctx, b));
+
+    // Middle glow
+    ctx.strokeStyle = `rgba(210, 230, 255, ${alpha * 0.85})`;
+    ctx.lineWidth = 4;
+    strokePath(ctx, path.main);
+    path.branches.forEach(b => strokePath(ctx, b));
+
+    // Bright core
+    ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+    ctx.lineWidth = 2;
+    strokePath(ctx, path.main);
+    path.branches.forEach(b => strokePath(ctx, b));
+}
+
+function strokePath(ctx, points) {
+    if (!points || points.length < 2) return;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i].x, points[i].y);
+    }
+    ctx.stroke();
+}
+
+
+/* =========================================================
+   FOG LAYER — soft drifting bands for foggy weather
+========================================================= */
+let _fogBlobs = null;
+let _fogBlobSize = { w: 0, h: 0 };
+
+function drawFogLayer(ctx, w, h, t) {
+    if (!_fogBlobs || _fogBlobSize.w !== w || _fogBlobSize.h !== h) {
+        _fogBlobs = [];
+        _fogBlobSize = { w, h };
+
+        const count = 14;
+        for (let i = 0; i < count; i++) {
+            _fogBlobs.push({
+                x: Math.random() * w,
+                y: h * (0.10 + Math.random() * 0.80),
+                rx: w * (0.22 + Math.random() * 0.30),
+                ry: h * (0.08 + Math.random() * 0.14),
+                drift: (Math.random() - 0.5) * 0.00015,
+                offset: Math.random() * Math.PI * 2,
+                alpha: 0.10 + Math.random() * 0.10
+            });
+        }
+    }
+
+    _fogBlobs.forEach(b => {
+        const wobbleX = Math.sin(t * 0.0003 + b.offset) * 30;
+        const wobbleY = Math.sin(t * 0.0005 + b.offset) * 8;
+
+        const cx = ((b.x + t * b.drift + wobbleX) % (w * 1.4) + w * 1.4) % (w * 1.4) - w * 0.2;
+        const cy = b.y + wobbleY;
+
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, b.rx);
+        grad.addColorStop(0,    `rgba(235, 240, 250, ${b.alpha})`);
+        grad.addColorStop(0.55, `rgba(220, 228, 242, ${b.alpha * 0.5})`);
+        grad.addColorStop(1,    "rgba(210, 220, 240, 0)");
+
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, b.rx, b.ry, 0, 0, Math.PI * 2);
+        ctx.fill();
+    });
 }
 
 /* =========================================================
@@ -1035,15 +1208,14 @@ function applyWeatherBackground(weatherId, iconCode, clouds) {
         canvasType = "snow";
     } else if (weatherId >= 701 && weatherId <= 781) {
         cls = "weather-fog";
+        canvasType = "fog";
     } else if (weatherId === 800) {
         cls = "weather-sunny";
     } else if (weatherId >= 801 && weatherId <= 804) {
         cls = "weather-cloudy";
     }
 
-        hero.classList.add(cls);
-
-        // ⭐ Clear night → start canvas so stars can render
+    // Clear night → stars
     if (!canvasType) {
         const cloudPct = Number(clouds ?? 100);
         const isNight = String(iconCode).endsWith("n");
@@ -1052,6 +1224,8 @@ function applyWeatherBackground(weatherId, iconCode, clouds) {
             canvasType = "stars";
         }
     }
+
+    hero.classList.add(cls);
 
     if (canvasType) {
         setTimeout(() => startWeatherCanvas(canvasType), 50);

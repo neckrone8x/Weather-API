@@ -2175,17 +2175,6 @@ textarea.feedback-input {
     96%           { opacity: 0; }
 }
 
-.cw-hero.weather-thunder::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: rgba(255, 255, 255, 0.7);
-    pointer-events: none;
-    z-index: 1;
-    animation: lightningFlash 6s infinite;
-    border-radius: inherit;
-}
-
 .cw-hero.weather-snow {
     background: linear-gradient(135deg,
         rgba(226, 232, 240, 0.22),
