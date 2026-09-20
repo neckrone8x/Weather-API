@@ -698,10 +698,14 @@ function startWeatherCanvas(type) {
     weatherParticleType = type;
 
     weatherParticles = [];
-    const isRain = type === "rain" || type === "rain-heavy";
+        const isRain = type === "rain" || type === "rain-heavy";
+    const isStars = type === "stars";
     const count = type === "rain-heavy" ? 160 :
                   type === "rain"       ? 70  :
+                  type === "snow"       ? 45  :
+                  isStars               ? 0   :
                                           45;
+
     for (let i = 0; i < count; i++) {
         weatherParticles.push({
             x: Math.random() * weatherCanvas.width,
@@ -728,10 +732,20 @@ function startWeatherCanvas(type) {
         });
     }
 
-    function draw() {
+        function draw() {
         if (!weatherCtx || !weatherCanvas) return;
 
         weatherCtx.clearRect(0, 0, weatherCanvas.width, weatherCanvas.height);
+
+        // ⭐ Stars render first — behind any particles
+        if (isStars) {
+            drawStarField(
+                weatherCtx,
+                weatherCanvas.width,
+                weatherCanvas.height,
+                performance.now()
+            );
+        }
 
         weatherParticles.forEach(p => {
             if (weatherParticleType === "rain" ||
@@ -773,6 +787,210 @@ function startWeatherCanvas(type) {
     draw();
 }
 
+/* =========================================================
+   STAR FIELD — twinkling stars for clear nights
+========================================================= */
+let _starField = null;
+let _starFieldSize = { w: 0, h: 0 };
+
+function drawStarField(ctx, w, h, t) {
+    // Rebuild the star list if canvas size changed (or first run)
+    if (!_starField || _starFieldSize.w !== w || _starFieldSize.h !== h) {
+        _starField = [];
+        _starFieldSize = { w, h };
+
+        // Density scales with area, capped so mobile stays light
+        const density = Math.floor((w * h) / 3000);
+        const maxCount = Math.min(density, 120);
+
+        for (let i = 0; i < maxCount; i++) {
+            _starField.push({
+                x: Math.random() * w,
+                y: Math.random() * h * 0.85,   // keep clear of bottom edge
+                r: 0.6 + Math.random() * 1.4,
+                phase: Math.random() * Math.PI * 2,
+                speed: 0.5 + Math.random() * 1.5
+            });
+        }
+    }
+
+    _starField.forEach(s => {
+        const twinkle = 0.55 + 0.45 * Math.sin(t * 0.001 * s.speed + s.phase);
+
+        // Star dot
+        ctx.fillStyle = `rgba(255, 255, 255, ${twinkle})`;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Bigger stars get a soft 4-point glow
+        if (s.r > 1.6) {
+            ctx.strokeStyle = `rgba(255, 255, 255, ${twinkle * 0.35})`;
+            ctx.lineWidth = 0.8;
+            const arm = s.r * 3;
+            ctx.beginPath();
+            ctx.moveTo(s.x - arm, s.y);
+            ctx.lineTo(s.x + arm, s.y);
+            ctx.moveTo(s.x, s.y - arm);
+            ctx.lineTo(s.x, s.y + arm);
+            ctx.stroke();
+        }
+    });
+}
+
+/* =========================================================
+   SKY LAYER — sun and moon
+========================================================= */
+function drawSkyLayer(ctx, w, h) {
+    const data = window._currentWeatherData;
+    if (!data || !data.sys) return;
+
+    const sys = data.sys;
+    if (!sys.sunrise || !sys.sunset) return;
+
+    const weather = data.weather?.[0] || {};
+    const weatherId = Number(weather.id);
+    const iconCode = String(weather.icon || "");
+    const clouds = Number(data.clouds?.all ?? 0);
+
+    const now = Math.floor(Date.now() / 1000);
+    const tz = Number(data.timezone || 0);
+    const localNow = now + tz;
+    const localSunrise = Number(sys.sunrise) + tz;
+    const localSunset = Number(sys.sunset) + tz;
+
+    const isNight = localNow < localSunrise || localNow >= localSunset;
+
+    // Decide if the sky body is visible given the current weather
+    const showSun  = !isNight && (weatherId === 800 || weatherId === 801);
+    const showMoon =  isNight && clouds < 40;
+
+    if (!showSun && !showMoon) return;
+
+    // Progress through the sun's (or moon's) arc: 0 = rise, 1 = set
+    let progress;
+    if (!isNight) {
+        progress = (localNow - localSunrise) / Math.max(1, localSunset - localSunrise);
+    } else {
+        let nightStart = localSunset;
+        let nightEnd = localSunrise + 86400;
+        let nightNow = localNow < localSunrise ? localNow + 86400 : localNow;
+        progress = (nightNow - nightStart) / Math.max(1, nightEnd - nightStart);
+    }
+    progress = Math.max(0, Math.min(1, progress));
+
+    // Arc across the upper part of the card
+    const cx = w * (0.15 + progress * 0.70);
+    const cy = h * 0.60 - Math.sin(progress * Math.PI) * h * 0.38;
+
+    const radius = Math.min(w, h) * 0.085;
+
+    if (showSun) {
+        drawSun(ctx, cx, cy, radius);
+    } else {
+        drawMoon(ctx, cx, cy, radius);
+    }
+}
+
+function drawSun(ctx, cx, cy, r) {
+    // Soft outer glow
+    const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 3.2);
+    glow.addColorStop(0,    "rgba(255, 230, 140, 0.55)");
+    glow.addColorStop(0.35, "rgba(255, 205, 90, 0.25)");
+    glow.addColorStop(1,    "rgba(255, 180, 40, 0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 3.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Sun body
+    const body = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, 0, cx, cy, r);
+    body.addColorStop(0,   "#fffbe0");
+    body.addColorStop(0.5, "#ffdf70");
+    body.addColorStop(1,   "#f5b400");
+    ctx.fillStyle = body;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Slowly rotating rays
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(Date.now() * 0.00015);
+    ctx.strokeStyle = "rgba(255, 220, 120, 0.75)";
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    const rays = 12;
+    const innerR = r * 1.30;
+    const outerR = r * 1.70;
+    for (let i = 0; i < rays; i++) {
+        const a = (i / rays) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * innerR, Math.sin(a) * innerR);
+        ctx.lineTo(Math.cos(a) * outerR, Math.sin(a) * outerR);
+        ctx.stroke();
+    }
+    ctx.restore();
+}
+
+function drawMoon(ctx, cx, cy, r) {
+    // Soft glow
+    const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 2.8);
+    glow.addColorStop(0,   "rgba(220, 230, 255, 0.40)");
+    glow.addColorStop(0.5, "rgba(180, 200, 255, 0.15)");
+    glow.addColorStop(1,   "rgba(150, 170, 220, 0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 2.8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Moon disc
+    const body = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, 0, cx, cy, r);
+    body.addColorStop(0,   "#ffffff");
+    body.addColorStop(0.7, "#e8ecf5");
+    body.addColorStop(1,   "#c5cede");
+    ctx.fillStyle = body;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Craters
+    ctx.fillStyle = "rgba(170, 180, 200, 0.35)";
+    const craters = [
+        { x: -0.30, y: -0.20, r: 0.18 },
+        { x:  0.20, y:  0.10, r: 0.22 },
+        { x: -0.10, y:  0.35, r: 0.14 },
+        { x:  0.35, y: -0.35, r: 0.12 },
+        { x: -0.40, y:  0.15, r: 0.10 }
+    ];
+    craters.forEach(c => {
+        ctx.beginPath();
+        ctx.arc(cx + c.x * r, cy + c.y * r, c.r * r, 0, Math.PI * 2);
+        ctx.fill();
+    });
+
+    // Phase shadow — dark circle sliding off to one side
+    if (typeof getMoonPhase === "function") {
+        const phase = getMoonPhase().phase; // 0 = new, 0.5 = full, 1 = new
+        const shadowFrac = (1 + Math.cos(phase * 2 * Math.PI)) / 2;
+        const offset = (1 - shadowFrac) * 2 * r;
+        const waxing = phase < 0.5;
+        const dir = waxing ? -1 : 1;
+
+        if (offset < 2 * r - 1) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx.clip();
+            ctx.fillStyle = "rgba(8, 12, 25, 0.90)";
+            ctx.beginPath();
+            ctx.arc(cx + dir * offset, cy, r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+    }
+}
+
 window.addEventListener("resize", () => {
     if (!weatherCanvas || !weatherParticleType) return;
     const parent = weatherCanvas.parentElement;
@@ -785,7 +1003,7 @@ window.addEventListener("resize", () => {
 /* =========================================================
    WEATHER BACKGROUND FOR HERO CARD
 ========================================================= */
-function applyWeatherBackground(weatherId, iconCode) {
+function applyWeatherBackground(weatherId, iconCode, clouds) {
     const hero = document.querySelector(".cw-hero");
     if (!hero) return;
 
@@ -823,7 +1041,17 @@ function applyWeatherBackground(weatherId, iconCode) {
         cls = "weather-cloudy";
     }
 
-    hero.classList.add(cls);
+        hero.classList.add(cls);
+
+        // ⭐ Clear night → start canvas so stars can render
+    if (!canvasType) {
+        const cloudPct = Number(clouds ?? 100);
+        const isNight = String(iconCode).endsWith("n");
+        const isClear = weatherId === 800 || weatherId === 801;
+        if (isNight && isClear && cloudPct < 30) {
+            canvasType = "stars";
+        }
+    }
 
     if (canvasType) {
         setTimeout(() => startWeatherCanvas(canvasType), 50);
@@ -870,7 +1098,7 @@ function displayWeather(data) {
     updateTheme(sys.sunrise, sys.sunset, timezone);
     updateDateTime();
 
-    applyWeatherBackground(weatherId, iconCode);
+    applyWeatherBackground(weatherId, iconCode, clouds);
 
     const cityElement = getElement("city");
     if (cityElement) cityElement.textContent = locationText;
