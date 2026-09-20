@@ -2077,6 +2077,13 @@ function renderSavedLocations() {
         window.EarthGlobe.updateSaveButton();
     }
     renderCitiesGlance();
+
+        if (window.EarthGlobe) {
+        window.EarthGlobe.updateSavedMarkers(savedLocations);
+        window.EarthGlobe.updateSaveButton();
+    }
+    updateSwipeHint();
+    renderCitiesGlance();
 }
 
 
@@ -2840,6 +2847,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     setupSearch();
     setupVoiceSearch();
+    setupSavedCitySwipe();
+    updateSwipeHint();
     setupLocationButton();
     setupThemeButton();
     setupUnitButton();
@@ -3183,4 +3192,84 @@ function setupVoiceSearch() {
             showToast(`🎤 Language: ${langSelect.options[langSelect.selectedIndex].text}`);
         });
     }
+}
+/* =========================================================
+   SWIPE BETWEEN SAVED CITIES
+========================================================= */
+let swipeStartX = 0;
+let swipeStartY = 0;
+let swipeTracking = false;
+const SWIPE_THRESHOLD = 60;      // minimum horizontal px to count
+const SWIPE_MAX_VERTICAL = 80;   // ignore if mostly vertical
+
+function findSavedIndex(loc) {
+    if (!loc || !Array.isArray(savedLocations)) return -1;
+    return savedLocations.findIndex(l =>
+        Math.abs(l.lat - loc.lat) < 0.001 &&
+        Math.abs(l.lon - loc.lon) < 0.001
+    );
+}
+
+function goToSavedCity(delta) {
+    if (savedLocations.length < 2) return;
+
+    const current = window._loadedLocation;
+    let idx = findSavedIndex(current);
+
+    if (idx === -1) {
+        // Current city not saved → jump to first
+        idx = 0;
+    } else {
+        idx = (idx + delta + savedLocations.length) % savedLocations.length;
+    }
+
+    const next = savedLocations[idx];
+    if (!next) return;
+
+    showToast(`📍 ${next.name || "Saved location"}`);
+    getWeatherByCoordinates(next.lat, next.lon, next.name, next.country, next.state);
+}
+
+function updateSwipeHint() {
+    const hint = getElement("swipe-hint");
+    if (!hint) return;
+    hint.style.display = savedLocations.length >= 2 ? "block" : "none";
+}
+
+function setupSavedCitySwipe() {
+    const target = document.querySelector(".cw-hero");
+    if (!target) return;
+
+    target.addEventListener("touchstart", (e) => {
+        if (e.touches.length !== 1) return;
+        swipeStartX = e.touches[0].clientX;
+        swipeStartY = e.touches[0].clientY;
+        swipeTracking = true;
+    }, { passive: true });
+
+    target.addEventListener("touchend", (e) => {
+        if (!swipeTracking) return;
+        swipeTracking = false;
+
+        const t = e.changedTouches[0];
+        if (!t) return;
+
+        const dx = t.clientX - swipeStartX;
+        const dy = t.clientY - swipeStartY;
+
+        if (Math.abs(dy) > SWIPE_MAX_VERTICAL) return;
+        if (Math.abs(dx) < SWIPE_THRESHOLD) return;
+
+        if (dx < 0) goToSavedCity(1);
+        else        goToSavedCity(-1);
+    }, { passive: true });
+
+    // Desktop: left/right arrow keys
+    document.addEventListener("keydown", (e) => {
+        const tag = (e.target.tagName || "").toLowerCase();
+        if (tag === "input" || tag === "textarea" || tag === "select") return;
+
+        if (e.key === "ArrowRight") goToSavedCity(1);
+        if (e.key === "ArrowLeft")  goToSavedCity(-1);
+    });
 }

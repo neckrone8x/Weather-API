@@ -5,7 +5,7 @@
      - API calls        → network-first, cache as offline fallback
      - Images / icons   → cache-first (they rarely change)
 ========================================================= */
-const CACHE_NAME = "neckrone8x-weather-v18";
+const CACHE_NAME = "neckrone8x-weather-v21";
 
 const APP_SHELL = [
     "/",
