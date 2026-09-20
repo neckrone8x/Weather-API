@@ -2839,6 +2839,7 @@ document.addEventListener("DOMContentLoaded", () => {
     applyTheme();
 
     setupSearch();
+    setupVoiceSearch();
     setupLocationButton();
     setupThemeButton();
     setupUnitButton();
@@ -3045,5 +3046,141 @@ function setupRadarControls() {
     if (play) {
         play.disabled = true;
         play.addEventListener("click", radarTogglePlay);
+    }
+}
+
+/* =========================================================
+   VOICE SEARCH  (with language picker)
+========================================================= */
+const VOICE_LANGUAGES = [
+    { code: "en-GB", label: "🇬🇧 UK" },
+    { code: "en-US", label: "🇺🇸 US" },
+    { code: "en-KE", label: "🇰🇪 EN" },
+    { code: "sw-KE", label: "🇰🇪 SW" },
+    { code: "fr-FR", label: "🇫🇷 FR" },
+    { code: "es-ES", label: "🇪🇸 ES" },
+    { code: "de-DE", label: "🇩🇪 DE" },
+    { code: "pt-PT", label: "🇵🇹 PT" },
+    { code: "ar-SA", label: "🇸🇦 AR" },
+    { code: "hi-IN", label: "🇮🇳 HI" }
+];
+
+let voiceRecognition = null;
+let voiceListening = false;
+
+function setupVoiceSearch() {
+    const btn = getElement("voice-search");
+    const input = getElement("city-input");
+    const langSelect = getElement("voice-lang");
+    if (!btn || !input) return;
+
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+        // Browser doesn't support voice input (e.g. Firefox) — hide the controls
+        btn.style.display = "none";
+        if (langSelect) langSelect.style.display = "none";
+        return;
+    }
+
+    /* ---------- Language picker ---------- */
+    if (langSelect) {
+        VOICE_LANGUAGES.forEach(({ code, label }) => {
+            const opt = document.createElement("option");
+            opt.value = code;
+            opt.textContent = label;
+            langSelect.appendChild(opt);
+        });
+
+        const savedLang = localStorage.getItem("voiceSearchLang");
+        const browserLang = navigator.language || "en-US";
+        const preferred = savedLang || browserLang;
+
+        const exact = VOICE_LANGUAGES.find(l => l.code === preferred);
+        const partial = VOICE_LANGUAGES.find(
+            l => l.code.split("-")[0] === preferred.split("-")[0]
+        );
+        langSelect.value = (exact || partial || VOICE_LANGUAGES[0]).code;
+    }
+
+    /* ---------- Recognition ---------- */
+    voiceRecognition = new SR();
+    voiceRecognition.lang = langSelect ? langSelect.value : "en-US";
+    voiceRecognition.interimResults = false;
+    voiceRecognition.continuous = false;
+    voiceRecognition.maxAlternatives = 1;
+
+    voiceRecognition.onstart = () => {
+        voiceListening = true;
+        btn.classList.add("listening");
+        btn.textContent = "⏹";
+        btn.title = "Listening… tap to stop";
+        if (typeof mpTrack === "function") mpTrack("voice_search_started");
+    };
+
+    voiceRecognition.onresult = (event) => {
+        const transcript = (event.results[0][0].transcript || "").trim();
+        if (!transcript) return;
+
+        input.value = transcript;
+        showToast(`🎤 "${transcript}"`);
+
+        if (typeof mpTrack === "function") {
+            mpTrack("voice_search_result", {
+                transcript: transcript,
+                confidence: event.results[0][0].confidence
+            });
+        }
+
+        searchLocations(transcript);
+    };
+
+    voiceRecognition.onerror = (event) => {
+        const code = event.error;
+
+        if (code === "not-allowed" || code === "service-not-allowed") {
+            showToast("🎤 Microphone access denied");
+        } else if (code === "no-speech") {
+            showToast("🎤 Didn't catch that — try again");
+        } else if (code === "audio-capture") {
+            showToast("🎤 No microphone found");
+        } else if (code === "network") {
+            showToast("🎤 Network error — check connection");
+        } else if (code === "aborted") {
+            // User cancelled — stay silent
+        } else {
+            showToast("🎤 Voice search failed");
+        }
+
+        if (typeof mpTrack === "function") {
+            mpTrack("voice_search_error", { error: code });
+        }
+    };
+
+    voiceRecognition.onend = () => {
+        voiceListening = false;
+        btn.classList.remove("listening");
+        btn.textContent = "🎤";
+        btn.title = "Search by voice";
+    };
+
+    btn.addEventListener("click", () => {
+        if (voiceListening) {
+            voiceRecognition.stop();
+            return;
+        }
+        try {
+            voiceRecognition.start();
+        } catch (err) {
+            console.warn("Voice start failed:", err);
+        }
+    });
+
+    /* ---------- Language change ---------- */
+    if (langSelect) {
+        langSelect.addEventListener("change", () => {
+            voiceRecognition.lang = langSelect.value;
+            localStorage.setItem("voiceSearchLang", langSelect.value);
+            showToast(`🎤 Language: ${langSelect.options[langSelect.selectedIndex].text}`);
+        });
     }
 }
