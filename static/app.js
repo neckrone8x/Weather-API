@@ -524,6 +524,7 @@ function renderWhatToWear(data) {
     const advice = getWhatToWear(data);
     iconEl.textContent = advice.icon;
     textEl.textContent = advice.text;
+    iconEl.classList.remove("wtw-svg");
 }
 
 
@@ -2072,12 +2073,6 @@ function renderSavedLocations() {
         container.appendChild(chip);
     });
 
-    if (window.EarthGlobe) {
-        window.EarthGlobe.updateSavedMarkers(savedLocations);
-        window.EarthGlobe.updateSaveButton();
-    }
-    renderCitiesGlance();
-
         if (window.EarthGlobe) {
         window.EarthGlobe.updateSavedMarkers(savedLocations);
         window.EarthGlobe.updateSaveButton();
@@ -3085,7 +3080,6 @@ function setupVoiceSearch() {
 
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
-        // Browser doesn't support voice input (e.g. Firefox) — hide the controls
         btn.style.display = "none";
         if (langSelect) langSelect.style.display = "none";
         return;
@@ -3155,7 +3149,7 @@ function setupVoiceSearch() {
         } else if (code === "network") {
             showToast("🎤 Network error — check connection");
         } else if (code === "aborted") {
-            // User cancelled — stay silent
+            // User cancelled — silent
         } else {
             showToast("🎤 Voice search failed");
         }
@@ -3168,7 +3162,8 @@ function setupVoiceSearch() {
     voiceRecognition.onend = () => {
         voiceListening = false;
         btn.classList.remove("listening");
-        btn.textContent = "🎤";
+        // Restore the SVG mic
+        btn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M12 14.5a3.5 3.5 0 0 0 3.5-3.5V6a3.5 3.5 0 1 0-7 0v5a3.5 3.5 0 0 0 3.5 3.5z"/><path d="M18 11a1 1 0 1 0-2 0 4 4 0 1 1-8 0 1 1 0 1 0-2 0 6 6 0 0 0 5 5.91V19H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-2.09A6 6 0 0 0 18 11z"/></svg>`;
         btn.title = "Search by voice";
     };
 
@@ -3193,6 +3188,7 @@ function setupVoiceSearch() {
         });
     }
 }
+
 /* =========================================================
    SWIPE BETWEEN SAVED CITIES
 ========================================================= */
@@ -3272,4 +3268,115 @@ function setupSavedCitySwipe() {
         if (e.key === "ArrowRight") goToSavedCity(1);
         if (e.key === "ArrowLeft")  goToSavedCity(-1);
     });
+
+        // Click/tap on the arrow buttons
+    document.querySelectorAll(".swipe-nav-btn").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const delta = parseInt(btn.dataset.nav, 10);
+            goToSavedCity(delta);
+        });
+    });
+}
+
+/* =========================================================
+   OUTFIT ICONS — SVG illustrations for "What to wear"
+========================================================= */
+const OUTFIT_ICONS = {
+    hot: `
+        <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="44" cy="18" r="7" fill="#fbbf24"/>
+            <g stroke="#fbbf24" stroke-width="2" stroke-linecap="round">
+                <path d="M44 4v4M44 28v4M30 18h4M54 18h4M34 8l3 3M54 28l-3-3M54 8l-3 3M34 28l3-3"/>
+            </g>
+            <path d="M14 32l6-6h24l6 6-6 5v17H20V37z" fill="#ef4444" stroke="#b91c1c" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M20 32h24" stroke="#b91c1c" stroke-width="2"/>
+            <path d="M26 26l-2 6M38 26l2 6" stroke="#b91c1c" stroke-width="2" stroke-linecap="round"/>
+        </svg>`,
+    warm: `
+        <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="46" cy="16" r="5" fill="#fcd34d"/>
+            <path d="M14 26l6-6h24l6 6-6 5v23H20V31z" fill="#38bdf8" stroke="#0284c7" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M20 26h24" stroke="#0284c7" stroke-width="2"/>
+            <path d="M26 20l-2 6M38 20l2 6" stroke="#0284c7" stroke-width="2" stroke-linecap="round"/>
+        </svg>`,
+    mild: `
+        <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M14 26l6-6h24l6 6-6 5v23H20V31z" fill="#e5e7eb" stroke="#6b7280" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M20 26h24" stroke="#6b7280" stroke-width="2"/>
+            <path d="M26 20l-2 6M38 20l2 6" stroke="#6b7280" stroke-width="2" stroke-linecap="round"/>
+        </svg>`,
+    cool: `
+        <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 26l8-6h24l8 6-8 6v22H20V32z" fill="#3b82f6" stroke="#1e3a8a" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M20 26h24" stroke="#1e3a8a" stroke-width="2"/>
+            <path d="M26 20l-2 6M38 20l2 6" stroke="#1e3a8a" stroke-width="2" stroke-linecap="round"/>
+            <path d="M32 26v28" stroke="#1e3a8a" stroke-width="2"/>
+            <circle cx="30" cy="40" r="1.5" fill="#1e3a8a"/>
+            <circle cx="30" cy="46" r="1.5" fill="#1e3a8a"/>
+            <circle cx="34" cy="40" r="1.5" fill="#1e3a8a"/>
+            <circle cx="34" cy="46" r="1.5" fill="#1e3a8a"/>
+        </svg>`,
+    chilly: `
+        <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 26l8-6h24l8 6-8 6v22H20V32z" fill="#8b5cf6" stroke="#5b21b6" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M20 26h24" stroke="#5b21b6" stroke-width="2"/>
+            <path d="M26 20l-2 6M38 20l2 6" stroke="#5b21b6" stroke-width="2" stroke-linecap="round"/>
+            <path d="M24 34c4 4 12 4 16 0" stroke="#5b21b6" stroke-width="2" stroke-linecap="round" fill="none"/>
+        </svg>`,
+    cold: `
+        <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M10 28l10-8h24l10 8-10 8v20H20V36z" fill="#1e40af" stroke="#0f172a" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M20 28h24" stroke="#0f172a" stroke-width="2"/>
+            <path d="M26 20l-2 8M38 20l2 8" stroke="#0f172a" stroke-width="2" stroke-linecap="round"/>
+            <path d="M32 28v26" stroke="#0f172a" stroke-width="2"/>
+            <circle cx="30" cy="40" r="1.5" fill="#0f172a"/>
+            <circle cx="30" cy="46" r="1.5" fill="#0f172a"/>
+            <circle cx="34" cy="40" r="1.5" fill="#0f172a"/>
+            <circle cx="34" cy="46" r="1.5" fill="#0f172a"/>
+            <path d="M14 36v8M50 36v8" stroke="#0f172a" stroke-width="2" stroke-linecap="round"/>
+        </svg>`,
+    freezing: `
+        <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 30l10-8h20l10 8-10 8v18H22V38z" fill="#1e40af" stroke="#0f172a" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M22 30h20" stroke="#0f172a" stroke-width="2"/>
+            <path d="M32 30v26" stroke="#0f172a" stroke-width="2"/>
+            <circle cx="30" cy="42" r="1.5" fill="#0f172a"/>
+            <circle cx="34" cy="42" r="1.5" fill="#0f172a"/>
+            <path d="M26 22c2-4 10-4 12 0" stroke="#dc2626" stroke-width="3" stroke-linecap="round" fill="none"/>
+            <path d="M50 42v-8M50 34l-2 2M50 34l2 2" stroke="#e5e7eb" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="50" cy="46" r="1" fill="#e5e7eb"/>
+            <circle cx="52" cy="50" r="1" fill="#e5e7eb"/>
+            <circle cx="48" cy="50" r="1" fill="#e5e7eb"/>
+        </svg>`,
+    rain: `
+        <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M14 22h30c4 0 6 3 6 6s-2 6-6 6H14c-4 0-6-3-6-6s2-6 6-6z" fill="#38bdf8" stroke="#0284c7" stroke-width="2"/>
+            <path d="M24 22c0-6 4-10 10-10s10 4 10 10" fill="#38bdf8" stroke="#0284c7" stroke-width="2"/>
+            <g stroke="#0284c7" stroke-width="2" stroke-linecap="round">
+                <path d="M18 40l-2 6M28 40l-2 6M38 40l-2 6M48 40l-2 6"/>
+            </g>
+            <path d="M40 46v-6M40 40l-3-3M40 40l3-3" stroke="#fbbf24" stroke-width="2" stroke-linecap="round"/>
+        </svg>`,
+    storm: `
+        <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 24h34c4 0 6 3 6 6s-2 6-6 6H12c-4 0-6-3-6-6s2-6 6-6z" fill="#64748b" stroke="#334155" stroke-width="2"/>
+            <path d="M22 24c0-6 4-10 10-10s10 4 10 10" fill="#64748b" stroke="#334155" stroke-width="2"/>
+            <path d="M32 40l-4 10h6l-3 8 10-12h-6l3-6z" fill="#fbbf24" stroke="#b45309" stroke-width="1.5" stroke-linejoin="round"/>
+            <g stroke="#334155" stroke-width="2" stroke-linecap="round">
+                <path d="M16 44l-1 5M48 44l-1 5"/>
+            </g>
+        </svg>`,
+    snow: `
+        <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M8 26h32c4 0 6 3 6 6s-2 6-6 6H8c-4 0-6-3-6-6s2-6 6-6z" fill="#e0e7ff" stroke="#6366f1" stroke-width="2"/>
+            <path d="M16 26c0-6 4-10 10-10s10 4 10 10" fill="#e0e7ff" stroke="#6366f1" stroke-width="2"/>
+            <g stroke="#38bdf8" stroke-width="2" stroke-linecap="round">
+                <path d="M40 44v10M36 48l8 4M44 48l-8 4M36 49h8M40 44l-2 2M40 44l2 2"/>
+            </g>
+        </svg>`
+};
+
+function renderOutfitIcon(key) {
+    return OUTFIT_ICONS[key] || "";
 }

@@ -2468,23 +2468,59 @@ textarea.feedback-input {
 /* =========================================================
    SWIPE HINT — shows only when 2+ saved cities
 ========================================================= */
-.swipe-hint {
+.cw-hero .swipe-hint {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-wrap: nowrap !important;
+    gap: 12px !important;
+    width: 100% !important;
     margin-top: 14px;
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 1.5px;
     color: rgba(255, 255, 255, 0.75);
-    text-align: center;
     user-select: none;
-    pointer-events: none;
+}
+
+.swipe-hint-text {
+    opacity: 0.7;
+}
+
+.swipe-nav-btn {
+    background: rgba(255, 255, 255, 0.12);
+    border: none;
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    color: white;
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, transform 0.15s;
     animation: swipeHintPulse 2.5s ease-in-out infinite;
 }
 
+.swipe-nav-btn:hover {
+    background: rgba(255, 255, 255, 0.28);
+    transform: scale(1.1);
+    animation: none;
+}
+
+.swipe-nav-btn:active {
+    transform: scale(0.94);
+}
+
 @keyframes swipeHintPulse {
-    0%, 100% { opacity: 0.5; }
-    50%      { opacity: 0.95; }
+    0%, 100% { opacity: 0.6; }
+    50%      { opacity: 1; }
 }
 
 @media (max-width: 600px) {
-    .swipe-hint { font-size: 10px; margin-top: 12px; }
+    .swipe-hint { font-size: 10px; margin-top: 12px; gap: 8px; }
+    .swipe-nav-btn { width: 26px; height: 26px; font-size: 11px; }
 }

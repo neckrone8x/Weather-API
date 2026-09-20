@@ -88,7 +88,12 @@
                 <input type="text" id="city-input" placeholder="Search city or place..." autocomplete="off">
                 <button id="clear-search" type="button" aria-label="Clear search">✕</button>
                 <select id="voice-lang" title="Voice search language" aria-label="Voice search language"></select>
-                <button id="voice-search" type="button" aria-label="Search by voice" title="Search by voice">🎤</button>
+                <button id="voice-search" type="button" aria-label="Search by voice" title="Search by voice">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+        <path d="M12 14.5a3.5 3.5 0 0 0 3.5-3.5V6a3.5 3.5 0 1 0-7 0v5a3.5 3.5 0 0 0 3.5 3.5z"/>
+        <path d="M18 11a1 1 0 1 0-2 0 4 4 0 1 1-8 0 1 1 0 1 0-2 0 6 6 0 0 0 5 5.91V19H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-2.09A6 6 0 0 0 18 11z"/>
+    </svg>
+</button>
             </div>
             <button id="search-button" type="button">Search</button>
         </div>
@@ -165,7 +170,9 @@
                         <div class="condition" id="condition">Loading weather...</div>
                         <div class="weather-report" id="weather-report"></div>
                         <div id="swipe-hint" class="swipe-hint" style="display: none;">
-                            ◀ Swipe to switch cities ▶
+                            <button type="button" class="swipe-nav-btn" data-nav="-1" aria-label="Previous saved city">◀</button>
+                            <span class="swipe-hint-text">Switch cities</span>
+                            <button type="button" class="swipe-nav-btn" data-nav="1" aria-label="Next saved city">▶</button>
                         </div>
                     </div>
 
