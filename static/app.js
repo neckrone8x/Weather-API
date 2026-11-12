@@ -1581,13 +1581,17 @@ function renderHourlyForecast(data) {
         const temp = Number(cw.main.temp);
         const condition = getConditionText(wId, w.description);
 
+        const nextSlot = data.list.find(item => Number(item.dt) >= now) || data.list[0];
+        const nowRain = nextSlot && nextSlot.pop !== undefined
+            ? `${Math.round(Number(nextSlot.pop) * 100)}%` : "--";
+
         const nowCard = document.createElement("div");
         nowCard.className = "hourly-card now-card";
         nowCard.innerHTML = `
             <div class="hourly-time">Now</div>
             <div class="hourly-icon">${icon}</div>
             <div class="hourly-temperature">${formatTemp(temp, 0)}${tempUnit()}</div>
-            <div class="hourly-rain">💧 --</div>
+            <div class="hourly-rain">💧 ${nowRain}</div>
             <div class="hourly-condition">${condition}</div>
         `;
         container.appendChild(nowCard);
@@ -1645,8 +1649,9 @@ function renderForecast(data) {
 
     const days = {};
     data.list.forEach(item => {
-        if (!item.dt_txt) return;
-        const dateString = item.dt_txt.split(" ")[0];
+        const stamp = item.dt_txt_local || item.dt_txt;
+        if (!stamp) return;
+        const dateString = stamp.split(" ")[0];
         if (!days[dateString]) days[dateString] = [];
         days[dateString].push(item);
     });
@@ -1671,12 +1676,13 @@ function renderForecast(data) {
             .filter(value => Number.isFinite(value));
         if (temperatures.length === 0) return;
 
-        const high = Math.max(...temperatures);
-        const low = Math.min(...temperatures);
+        const daily = (data.daily || []).find(d => d.date === dateString);
+        const high = Number.isFinite(daily?.temp_max) ? daily.temp_max : Math.max(...temperatures);
+        const low = Number.isFinite(daily?.temp_min) ? daily.temp_min : Math.min(...temperatures);
 
-        const rainChance = Math.round(
-            Math.max(...entries.map(item => (Number(item.pop) || 0) * 100))
-        );
+        const rainChance = Number.isFinite(daily?.pop)
+            ? Math.round(daily.pop * 100)
+            : Math.round(Math.max(...entries.map(item => (Number(item.pop) || 0) * 100)));
 
         const daytimeEntries = entries.filter(item =>
             String(item.weather?.[0]?.icon || "").endsWith("d")
@@ -1773,8 +1779,9 @@ function renderCalendar(data) {
     const weatherMap = {};
     const dateGroups = {};
     data.list.forEach(item => {
-        if (!item.dt_txt) return;
-        const dateString = item.dt_txt.split(" ")[0];
+        const stamp = item.dt_txt_local || item.dt_txt;
+        if (!stamp) return;
+        const dateString = stamp.split(" ")[0];
         if (!dateGroups[dateString]) dateGroups[dateString] = [];
         dateGroups[dateString].push(item);
     });
@@ -1802,6 +1809,11 @@ function renderCalendar(data) {
         });
         const w = rep.weather?.[0] || {};
         weatherMap[dateString] = getWeatherIcon(Number(w.id), w.icon);
+    });
+
+    (data.daily || []).forEach(d => {
+        if (!d || !d.date || weatherMap[d.date]) return;
+        weatherMap[d.date] = getWeatherIcon(Number(d.weather?.id), d.weather?.icon);
     });
 
     const now = Math.floor(Date.now() / 1000);
