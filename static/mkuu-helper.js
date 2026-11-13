@@ -12,7 +12,11 @@
  *    data-chips          suggestion buttons, separated by |
  *    data-link-origins   other sites story cards may link to, separated by space
  *  A page can define window.MkuuHelperContext = function () { return "text"; }
- *  to send live page context (e.g. the current weather) with every message. */
+ *  to send live page context (e.g. the current weather) with every message,
+ *  and window.MkuuHelperNotice = function () { return {id, text} or null; }
+ *  for a one-time "heads up" (e.g. an active alert): a dot appears on the
+ *  button, and the note shows when the bubble opens. The page fires
+ *  window "mkuu:context-changed" when either may have changed. */
 (function (root) {
   'use strict';
 
@@ -20,12 +24,14 @@
   var MAX_CHARS = 500;
   var MAX_CONTEXT = 2000;
   var SID_KEY = 'mkuu_helper_sid';
+  var NOTICE_KEY = 'mkuu_helper_notices';
 
   var ICONS = {
     spark: '<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9L12 2zm7 11l.9 2.6 2.6.9-2.6.9L19 20l-.9-2.6-2.6-.9 2.6-.9L19 13zM5 14l.7 1.9 1.9.7-1.9.7L5 19.2l-.7-1.9-1.9-.7 1.9-.7L5 14z"/></svg>',
     close: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>',
     send: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path fill="currentColor" d="M3.4 20.4l17.5-7.5a1 1 0 000-1.8L3.4 3.6a1 1 0 00-1.4 1.2l2 6.2 9 1-9 1-2 6.2a1 1 0 001.4 1.2z"/></svg>',
     reset: '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M20 11a8 8 0 10-2.3 5.7M20 4v7h-7"/></svg>',
+    alert: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 2.5c.5 0 1 .27 1.27.75l9.5 16.5A1.47 1.47 0 0121.5 22h-19a1.47 1.47 0 01-1.27-2.25l9.5-16.5c.27-.48.77-.75 1.27-.75zm0 6.25a1.1 1.1 0 00-1.1 1.17l.35 5.03a.75.75 0 001.5 0l.35-5.03A1.1 1.1 0 0012 8.75zm0 8.25a1.25 1.25 0 100 2.5 1.25 1.25 0 000-2.5z"/></svg>',
     arrow: '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M7 17L17 7M8 7h9v9"/></svg>'
   };
 
@@ -100,6 +106,9 @@
     var getContext = opts.getContext || function () {
       return typeof win.MkuuHelperContext === 'function' ? win.MkuuHelperContext() : '';
     };
+    var getNotice = opts.getNotice || function () {
+      return typeof win.MkuuHelperNotice === 'function' ? win.MkuuHelperNotice() : null;
+    };
     var subtitle = opts.subtitle || (story ? 'Helping with this story' : 'Stories helper');
     var placeholder = opts.placeholder || (story ? 'Ask about this story…' : 'Ask Mkuu…');
     var welcomeText = opts.welcome || (story
@@ -116,6 +125,9 @@
     var sid = '';
     try { sid = (store && store.getItem(SID_KEY)) || ''; } catch (e) { sid = ''; }
     var busy = false, lastSend = 0;
+    var shownNotices = [], pendingNotice = null;
+    try { shownNotices = JSON.parse((store && store.getItem(NOTICE_KEY)) || '[]') || []; } catch (e) { shownNotices = []; }
+    if (!Array.isArray(shownNotices)) shownNotices = [];
 
     function el(tag, cls, text) {
       var n = doc.createElement(tag);
@@ -128,6 +140,9 @@
     // --- build the bubble ---
     var rootEl = el('div', 'mkh-root');
     var fab = icon('spark', el('button', 'mkh-fab'));
+    var dot = el('span', 'mkh-dot');
+    dot.hidden = true;
+    fab.appendChild(dot);
     fab.type = 'button';
     fab.setAttribute('aria-label', 'Ask Mkuu');
     fab.setAttribute('aria-expanded', 'false');
@@ -231,6 +246,43 @@
       rootEl.setAttribute('data-busy', v ? 'true' : 'false');
     }
 
+    // --- one-time notice (e.g. an active alert) ---
+    function noticeSeen(id) { return shownNotices.indexOf(id) >= 0; }
+
+    function showNotice(n) {
+      var m = el('div', 'mkh-msg mkh-bot mkh-notice');
+      m.setAttribute('role', 'status');
+      m.appendChild(icon('alert', el('span', 'mkh-noticeicon')));
+      var body = el('span', 'mkh-noticetext');
+      renderText(doc, body, n.text);
+      m.appendChild(body);
+      log.appendChild(m);
+      scrollDown();
+      shownNotices.push(n.id);
+      shownNotices = shownNotices.slice(-20);
+      try { if (store) store.setItem(NOTICE_KEY, JSON.stringify(shownNotices)); } catch (e) { /* private mode */ }
+      pendingNotice = null;
+      setDot(false);
+    }
+
+    function setDot(on) {
+      dot.hidden = !on;
+      fab.setAttribute('aria-label', on ? 'Ask Mkuu (1 new alert)' : 'Ask Mkuu');
+    }
+
+    function checkNotice() {
+      var n = null;
+      try { n = getNotice(); } catch (e) { n = null; }
+      if (!n || !n.id || !n.text || noticeSeen(String(n.id))) {
+        pendingNotice = null;
+        setDot(false);
+        return;
+      }
+      pendingNotice = { id: String(n.id), text: String(n.text).slice(0, 600) };
+      if (!panel.hidden) showNotice(pendingNotice);
+      else setDot(true);
+    }
+
     // --- sending ---
     function readStream(res, bubble, onFirst) {
       var reader = res.body.getReader();
@@ -326,7 +378,11 @@
       panel.hidden = !open;
       rootEl.setAttribute('data-open', open ? 'true' : 'false');
       fab.setAttribute('aria-expanded', open ? 'true' : 'false');
-      if (open) { scrollDown(); try { input.focus(); } catch (e) { /* ignore */ } }
+      if (open) {
+        if (pendingNotice) showNotice(pendingNotice);
+        scrollDown();
+        try { input.focus(); } catch (e) { /* ignore */ }
+      }
     }
 
     fab.addEventListener('click', function () { setOpen(panel.hidden); });
@@ -342,9 +398,11 @@
 
     welcome();
     setChips();
+    checkNotice();
+    if (win.addEventListener) win.addEventListener('mkuu:context-changed', checkNotice);
 
     return { send: send, open: function () { setOpen(true); }, close: function () { setOpen(false); }, panel: panel, log: log, input: input, form: form, fab: fab, chips: chips,
-             sessionId: function () { return sid; } };
+             sessionId: function () { return sid; }, checkNotice: checkNotice, dot: dot };
   }
 
   var api = { init: init, sameSite: sameSite, parseSSE: parseSSE, renderText: renderText, shorten: shorten, friendly: friendly };

@@ -603,10 +603,17 @@ async function checkLocationAlerts(lat, lon) {
     banner.style.display = "none";
     banner.className = "safety-alert";
 
+    // Shared with the Mkuu helper (mkuu-weather-context.js)
+    window._lastLocalAlerts = null;
+    window.dispatchEvent(new Event("mkuu:context-changed"));
+
     try {
         const res = await fetch(`/local-alerts?lat=${lat}&lon=${lon}`);
         if (!res.ok) return;
         const data = await res.json();
+
+        window._lastLocalAlerts = data;
+        window.dispatchEvent(new Event("mkuu:context-changed"));
 
         const alerts = data.alerts || [];
         const quakes = data.quakes || [];

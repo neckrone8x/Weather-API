@@ -45,6 +45,62 @@
         return [name, state, country].filter(Boolean).join(", ");
     }
 
+    function ago(ms) {
+        const mins = Math.round((Date.now() - Number(ms)) / 60000);
+        if (!Number.isFinite(mins) || mins < 0) return "";
+        if (mins < 60) return `${mins} min ago`;
+        const hrs = Math.round(mins / 60);
+        if (hrs < 48) return `${hrs} h ago`;
+        return `${Math.round(hrs / 24)} days ago`;
+    }
+
+    function alertData() {
+        const d = window._lastLocalAlerts || {};
+        return {
+            alerts: Array.isArray(d.alerts) ? d.alerts.slice(0, 3) : [],
+            quakes: Array.isArray(d.quakes) ? d.quakes.slice(0, 2) : [],
+            checked: !!window._lastLocalAlerts,
+        };
+    }
+
+    function quakeLine(q) {
+        const mag = num(q.magnitude);
+        const depth = num(q.depth);
+        const when = ago(q.time);
+        return `magnitude ${mag !== null ? mag.toFixed(1) : "?"} earthquake, ${q.place || "nearby"}` +
+            (depth !== null ? `, ${Math.round(depth)} km deep` : "") +
+            (when ? `, ${when}` : "");
+    }
+
+    /* A one-time "heads up" the bubble shows when it opens. Built straight
+       from the alert data, so it costs no AI call. Returns {id, text} or null. */
+    window.MkuuHelperNotice = function () {
+        const { alerts, quakes } = alertData();
+        const place = placeName(window._currentWeatherData || {});
+        const where = place ? ` for ${place}` : "";
+        if (alerts.length) {
+            const a = alerts[0];
+            const event = String(a.event || "Weather alert").trim();
+            const headline = String(a.headline || "").trim();
+            return {
+                id: `alert|${event}|${a.onset || ""}|${place}`,
+                text: `**Heads up:** ${event}${where}.` +
+                    (headline ? `\n${headline}` : "") +
+                    (alerts.length > 1 ? `\n(${alerts.length - 1} more active alert${alerts.length > 2 ? "s" : ""}.)` : "") +
+                    "\nAsk me what this means for your plans.",
+            };
+        }
+        if (quakes.length) {
+            const q = quakes[0];
+            return {
+                id: `quake|${q.time || ""}|${q.place || ""}`,
+                text: `**Heads up:** a ${quakeLine(q)}.` +
+                    "\nAsk me if you want to know more.",
+            };
+        }
+        return null;
+    };
+
     window.MkuuHelperContext = function () {
         const w = window._currentWeatherData;
         const f = window._lastForecastData;
@@ -90,6 +146,19 @@
                 const desc = (d.weather && d.weather.description) || "";
                 return `${weekday(d.date)} ${d.date.slice(5)} ${temp(d.temp_min)}/${temp(d.temp_max)} ${pop} ${desc}`;
             }).join("; ") + ".");
+        }
+
+        const { alerts, quakes, checked } = alertData();
+        if (alerts.length) {
+            lines.push("Active alerts: " + alerts.map(a =>
+                `${a.event || "alert"} (${a.severity || "unknown severity"})` +
+                (a.headline ? `: ${a.headline}` : "")).join("; ") + ".");
+        } else if (checked) {
+            lines.push("Active weather alerts: none.");
+        }
+        if (quakes.length) {
+            lines.push("Earthquakes within 500 km in the last 7 days: " +
+                quakes.map(quakeLine).join("; ") + ".");
         }
 
         return lines.join("\n");
