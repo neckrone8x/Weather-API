@@ -14,7 +14,7 @@ import os
 import threading
 import time
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -40,6 +40,13 @@ OWM_BASE = "https://api.openweathermap.org"
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 USER_AGENT = "Neckrone8xWeather/2.0 (contact@neckrone8x.co.ke)"
 DEFAULT_CITY = "Kisumu"
+
+# Time limits (seconds). gunicorn kills any request that runs past its own
+# timeout (30 s by default), so every request here must finish well inside it.
+UPSTREAM_TIMEOUT = (4, 8)   # (connect, read) for each outside service
+REQUEST_BUDGET = 18         # the most one of our endpoints may wait in total
+OPEN_METEO_WAIT = 6         # UV + 16-day outlook are extras: never wait long
+OPEN_METEO_COOLDOWN = 300   # after a failure, skip Open-Meteo for 5 minutes
 
 # Cache lifetimes (seconds)
 TTL_WEATHER = 600         # current weather + forecast
@@ -93,10 +100,15 @@ cache = TTLCache()
 # =================================
 def _make_session():
     s = requests.Session()
+    # One quick retry when a connection fails or a server is briefly down.
+    # Never retry a slow READ: that is what turned one slow reply into ~30 s.
     retry = Retry(
-        total=2,
-        backoff_factor=0.4,
-        status_forcelist=(500, 502, 503, 504),
+        total=1,
+        connect=1,
+        read=0,
+        status=1,
+        backoff_factor=0.3,
+        status_forcelist=(502, 503, 504),
         allowed_methods=frozenset(["GET"]),
         raise_on_status=False,
     )
@@ -128,6 +140,15 @@ def handle_api_error(err):
     return jsonify({"cod": err.status, "message": err.message}), err.status
 
 
+def wait_for(future, timeout, message="Weather service timed out"):
+    """A future's result, but never after `timeout` seconds: a slow outside
+    service becomes a clean 504 instead of gunicorn killing the worker."""
+    try:
+        return future.result(timeout=max(0.5, timeout))
+    except FutureTimeout:
+        raise ApiError(504, message)
+
+
 def coord_key(lat, lon):
     """~1 km precision, so nearby requests share cache entries."""
     return f"{round(lat, 2):.2f},{round(lon, 2):.2f}"
@@ -144,7 +165,7 @@ def owm_get(path, params, cache_key=None, ttl=TTL_WEATHER, units=True):
         query["units"] = "metric"
 
     try:
-        r = http.get(OWM_BASE + path, params=query, timeout=10)
+        r = http.get(OWM_BASE + path, params=query, timeout=UPSTREAM_TIMEOUT)
     except requests.exceptions.Timeout:
         log.warning("OWM timeout: %s", path)
         raise ApiError(504, "Weather service timed out")
@@ -332,6 +353,8 @@ def get_open_meteo(lat, lon):
     cached = cache.get(key)
     if cached is not None:
         return cached
+    if cache.get("om:down"):   # it failed a moment ago: don't make people wait again
+        return None
 
     try:
         r = http.get(OPEN_METEO_URL, params={
@@ -345,11 +368,12 @@ def get_open_meteo(lat, lon):
             ]),
             "timezone": "auto",
             "forecast_days": 16,
-        }, timeout=8)
+        }, timeout=UPSTREAM_TIMEOUT)
         r.raise_for_status()
         data = r.json()
     except (requests.exceptions.RequestException, ValueError) as e:
         log.warning("Open-Meteo error: %s", type(e).__name__)
+        cache.set("om:down", True, OPEN_METEO_COOLDOWN)
         return None
 
     d = data.get("daily", {}) or {}
@@ -498,7 +522,10 @@ def forecast():
     lat, lon, searched = resolve_location()
     f1 = executor.submit(get_current, lat, lon)
     f2 = executor.submit(get_forecast, lat, lon)
-    w, f = attach_location(f1.result(), f2.result(), searched)
+    deadline = time.monotonic() + REQUEST_BUDGET
+    current = wait_for(f1, REQUEST_BUDGET)
+    fc = wait_for(f2, deadline - time.monotonic())
+    w, f = attach_location(current, fc, searched)
     return jsonify(f)
 
 
@@ -513,10 +540,13 @@ def weather_full():
     fut_fc = executor.submit(get_forecast, lat, lon)
     fut_om = executor.submit(get_open_meteo, lat, lon)
 
-    current = fut_cur.result()      # ApiError propagates to the handler
-    fc = fut_fc.result()
+    deadline = time.monotonic() + REQUEST_BUDGET
+    current = wait_for(fut_cur, REQUEST_BUDGET)   # ApiError goes to the handler
+    fc = wait_for(fut_fc, deadline - time.monotonic())
     try:
-        om = fut_om.result()
+        # The extras (UV, 16-day outlook) get a short wait; without them the
+        # page still works, it just skips those parts this time.
+        om = fut_om.result(timeout=max(0.1, min(OPEN_METEO_WAIT, deadline - time.monotonic())))
     except Exception:
         om = None
 
@@ -605,7 +635,7 @@ def reverse():
     try:
         r = http.get("https://nominatim.openstreetmap.org/reverse", params={
             "lat": lat, "lon": lon, "format": "json", "zoom": 14, "addressdetails": 1,
-        }, timeout=10)
+        }, timeout=UPSTREAM_TIMEOUT)
         r.raise_for_status()
         data = r.json()
     except (requests.exceptions.RequestException, ValueError) as e:
@@ -642,7 +672,7 @@ def my_location():
         return jsonify(cached)
 
     try:
-        r = http.get(f"https://ipapi.co/{ip}/json/", timeout=8)
+        r = http.get(f"https://ipapi.co/{ip}/json/", timeout=UPSTREAM_TIMEOUT)
         r.raise_for_status()
         data = r.json()
     except (requests.exceptions.RequestException, ValueError) as e:
@@ -739,7 +769,7 @@ def global_alerts():
             "todate": now.strftime("%Y-%m-%d"),
             "alertlevel": "red;orange",
             "pagesize": 20,
-        }, timeout=10)
+        }, timeout=UPSTREAM_TIMEOUT)
         if r.status_code == 204:          # GDACS sends 204 when nothing matches
             features = []
         else:
@@ -783,7 +813,7 @@ def _nws_alerts(lat, lon):
     try:
         r = http.get("https://api.weather.gov/alerts/active",
                      params={"point": f"{lat:.4f},{lon:.4f}"},
-                     headers={"Accept": "application/geo+json"}, timeout=8)
+                     headers={"Accept": "application/geo+json"}, timeout=UPSTREAM_TIMEOUT)
         if r.status_code != 200:      # non-US points return 400 — expected
             return []
         out = []
@@ -811,7 +841,7 @@ def _usgs_quakes(lat, lon):
             "maxradiuskm": 500, "minmagnitude": 4.0,
             "starttime": (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d"),
             "orderby": "time",
-        }, timeout=8)
+        }, timeout=UPSTREAM_TIMEOUT)
         if r.status_code != 200:
             return []
         out = []
@@ -848,7 +878,16 @@ def local_alerts():
 
     f_nws = executor.submit(_nws_alerts, lat, lon)
     f_usgs = executor.submit(_usgs_quakes, lat, lon)
-    result = {"alerts": f_nws.result(), "quakes": f_usgs.result()}
+    deadline = time.monotonic() + REQUEST_BUDGET
+    try:
+        alerts = f_nws.result(timeout=REQUEST_BUDGET)
+    except FutureTimeout:
+        alerts = []
+    try:
+        quakes = f_usgs.result(timeout=max(0.5, deadline - time.monotonic()))
+    except FutureTimeout:
+        quakes = []
+    result = {"alerts": alerts, "quakes": quakes}
     cache.set(key, result, TTL_ALERTS)
     return jsonify(result)
 

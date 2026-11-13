@@ -3,6 +3,7 @@ Offline tests for the weather backend. Upstream APIs are mocked, so no key
 or network is needed:   python -m unittest test_app -v
 """
 import os
+import time
 import unittest
 from unittest import mock
 
@@ -156,6 +157,66 @@ class WeatherApiTests(unittest.TestCase):
             self.assertEqual(codes[5], 429)
         finally:
             weather_app.SENDGRID_API_KEY = None
+
+
+
+class SlowServiceTests(unittest.TestCase):
+    """A slow outside service must never hold a request past the budget:
+    gunicorn kills anything over 30 s, which is what caused the 500s."""
+
+    def setUp(self):
+        weather_app.cache.clear()
+        self.client = weather_app.app.test_client()
+        self._saved = (weather_app.REQUEST_BUDGET, weather_app.OPEN_METEO_WAIT)
+        weather_app.REQUEST_BUDGET, weather_app.OPEN_METEO_WAIT = 1.0, 0.3
+
+    def tearDown(self):
+        weather_app.REQUEST_BUDGET, weather_app.OPEN_METEO_WAIT = self._saved
+
+    def slow(self, which, seconds):
+        def handler(url, params=None, **kw):
+            if which in url:
+                time.sleep(seconds)
+            return router(url, params, **kw)
+        return mock.patch.object(weather_app.http, "get", side_effect=handler)
+
+    def test_slow_open_meteo_is_skipped_not_waited_for(self):
+        with self.slow("open-meteo", 2.0):
+            t = time.monotonic()
+            r = self.client.get("/weather-full?lat=-0.1&lon=34.75")
+            took = time.monotonic() - t
+        self.assertEqual(r.status_code, 200)
+        self.assertLess(took, 1.0)                       # did not wait the 2 s
+        self.assertNotIn("daily", r.get_json()["forecast"])
+
+    def test_slow_openweathermap_gives_a_clean_504_in_time(self):
+        with self.slow("api.openweathermap.org", 3.0):
+            t = time.monotonic()
+            r = self.client.get("/weather-full?lat=1.5&lon=2.5")
+            took = time.monotonic() - t
+        self.assertEqual(r.status_code, 504)
+        self.assertLess(took, 1.6)
+        self.assertNotIn(SECRET, r.get_data(as_text=True))
+
+    def test_after_an_open_meteo_failure_it_is_skipped_for_a_while(self):
+        calls = []
+
+        def handler(url, params=None, **kw):
+            if "open-meteo" in url:
+                calls.append(url)
+                raise requests.exceptions.ConnectTimeout("slow")
+            return router(url, params, **kw)
+        with mock.patch.object(weather_app.http, "get", side_effect=handler):
+            self.client.get("/weather-full?lat=3&lon=4")
+            self.client.get("/weather-full?lat=5&lon=6")   # another place
+            self.client.get("/uv?lat=7&lon=8")
+        self.assertEqual(len(calls), 1)
+
+    def test_retries_never_repeat_a_slow_read(self):
+        retry = weather_app.http.get_adapter("https://x").max_retries
+        self.assertEqual(retry.read, 0)
+        self.assertLessEqual(retry.total, 1)
+        self.assertEqual(weather_app.UPSTREAM_TIMEOUT, (4, 8))
 
 
 if __name__ == "__main__":
