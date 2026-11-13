@@ -2513,3 +2513,18 @@ textarea.feedback-input {
     .swipe-hint { font-size: 10px; margin-top: 12px; gap: 8px; }
     .swipe-nav-btn { width: 26px; height: 26px; font-size: 11px; }
 }
+
+/* =========================================================
+   MKUU HELPER — keep the back-to-top button clear of the Mkuu bubble
+========================================================= */
+.back-to-top {
+    bottom: 96px;
+    right: 21px;
+}
+
+@media (max-width: 640px) {
+    .back-to-top {
+        bottom: 86px;
+        right: 19px;
+    }
+}
