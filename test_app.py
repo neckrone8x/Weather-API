@@ -1303,5 +1303,298 @@ class LanguageTests(unittest.TestCase):
         self.assertEqual(ct(500, "light rain", "en"), "light rain")
 
 
+# Places for the tips: on/near the water, inland Kenya, outside Kenya.
+KISUMU = (-0.10, 34.75)          # on Lake Victoria (Winam Gulf)
+NAIROBI = (-1.29, 36.82)         # inland Kenya, far from every lake
+ELDORET = (0.51, 35.27)          # highlands, inland
+MOMBASA = (-4.05, 39.66)         # Indian Ocean coast
+KAMPALA_INLAND = (0.35, 32.30)   # Uganda, away from the lake shore
+ENTEBBE = (0.05, 32.46)          # Uganda, on Lake Victoria
+
+
+def tip_weather(country="KE", wind=2.0, gust=None, cond=800, visibility=10000,
+                humidity=55, temp=24, temp_min=None, uv=None):
+    w = {"cod": 200, "name": "X", "sys": {"country": country},
+         "main": {"temp": temp, "humidity": humidity},
+         "wind": {"speed": wind}, "weather": [{"id": cond}], "visibility": visibility, "dt": 1}
+    if gust is not None:
+        w["wind"]["gust"] = gust
+    if temp_min is not None:
+        w["main"]["temp_min"] = temp_min
+    if uv is not None:
+        w["uv"] = {"value": uv, "max_today": uv}
+    return w
+
+
+def tip_forecast(n=16, rain=0.0, wind=2.0, gust=None, cond=800, pop=0.0, humidity=55,
+                 temp=22, temp_min=None, daily=None, first=None):
+    """n 3-hour slots alike; `first` (dict) overrides the fields of the first slot."""
+    slots = []
+    for i in range(n):
+        s = {"dt": 1000 + i, "main": {"temp": temp, "temp_min": temp if temp_min is None else temp_min,
+                                     "humidity": humidity},
+             "wind": {"speed": wind}, "weather": [{"id": cond}], "pop": pop}
+        if gust is not None:
+            s["wind"]["gust"] = gust
+        if rain:
+            s["rain"] = {"3h": rain}
+        slots.append(s)
+    if first and slots:
+        slots[0] = {**slots[0], **first}
+    f = {"list": slots}
+    if daily is not None:
+        f["daily"] = daily
+    return f
+
+
+class TipsTests(unittest.TestCase):
+    """W-7b3: lake and farm tips (pure rules on the weather we already fetch)."""
+
+    def ids(self, weather, forecast, place, lang="en"):
+        return [t["id"] for t in weather_app.tips_for(weather, forecast, *place, lang)]
+
+    def tip(self, weather, forecast, place, tip_id, lang="en"):
+        for t in weather_app.tips_for(weather, forecast, *place, lang):
+            if t["id"] == tip_id:
+                return t
+        self.fail(f"{tip_id} not given: {self.ids(weather, forecast, place)}")
+
+    # ---- where ----
+    def test_water_distance(self):
+        wk = weather_app.water_km
+        self.assertEqual(wk(*KISUMU), ("Lake Victoria", 0.0))
+        self.assertEqual(wk(3.5, 36.1)[0], "Lake Turkana")        # on the lake
+        name, km = wk(-0.28, 36.07)                                # Nakuru town
+        self.assertEqual(name, "Lake Nakuru"); self.assertLess(km, 15)
+        name, km = wk(*MOMBASA)
+        self.assertEqual(name, "Indian Ocean coast"); self.assertLess(km, 15)
+        name, km = wk(-0.72, 36.43)                                # Naivasha town
+        self.assertEqual(name, "Lake Naivasha"); self.assertLess(km, 15)
+        self.assertEqual(wk(0.47, 36.0)[0], "Lake Baringo")        # Marigat-ish
+        self.assertLess(wk(0.47, 36.0)[1], 15)
+        self.assertLess(wk(-0.45, 36.20)[1], 15)                   # Elementaita / Gilgil road
+        self.assertGreater(wk(*NAIROBI)[1], 15)
+        self.assertGreater(wk(*ELDORET)[1], 15)
+        self.assertGreater(wk(*KAMPALA_INLAND)[1], 15)
+        self.assertEqual(wk(*ENTEBBE)[1] < 15, True)
+        self.assertEqual(wk(None, 1), (None, None))
+        self.assertEqual(wk("x", "y"), (None, None))
+        # the water list is one constant, with every lake asked for
+        names = {n for n, _, _ in weather_app.TIP_WATERS}
+        self.assertEqual(names, {"Lake Victoria", "Lake Naivasha", "Lake Turkana", "Lake Baringo",
+                                 "Lake Nakuru", "Lake Elementaita", "Indian Ocean coast"})
+
+    def test_lake_tips_only_near_water(self):
+        windy = tip_weather(wind=9)
+        self.assertIn("lake_wind", self.ids(windy, tip_forecast(), KISUMU))
+        self.assertIn("lake_wind", self.ids(windy, tip_forecast(), MOMBASA))
+        self.assertNotIn("lake_wind", self.ids(windy, tip_forecast(), NAIROBI))
+        # lake tips don't need Kenya: Entebbe gets them, farm tips it doesn't
+        ug = tip_weather(country="UG", wind=9, uv=12)
+        self.assertEqual(self.ids(ug, tip_forecast(), ENTEBBE), ["lake_wind"])
+
+    def test_farm_tips_kenya_only(self):
+        hot = tip_weather(uv=9)
+        self.assertIn("farm_uv", self.ids(hot, tip_forecast(), NAIROBI))
+        self.assertEqual(self.ids(tip_weather(country="UG", uv=9), tip_forecast(), KAMPALA_INLAND), [])
+        self.assertEqual(self.ids(tip_weather(country="", uv=9), tip_forecast(), NAIROBI), [])
+        # the searched place's country wins over OWM's nearest town
+        w = tip_weather(country="UG", uv=9)
+        w["searched_location"] = {"name": "Busia", "country": "KE"}
+        self.assertIn("farm_uv", self.ids(w, tip_forecast(), NAIROBI))
+        self.assertTrue(weather_app.in_kenya({"sys": {"country": "Kenya"}}))
+        self.assertFalse(weather_app.in_kenya(None))
+
+    # ---- lake rules ----
+    def test_lake_wind_and_gusts(self):
+        t = self.tip(tip_weather(wind=8.0), tip_forecast(), KISUMU, "lake_wind")
+        self.assertEqual((t["level"], t["params"]), ("caution", {"kmh": 29}))
+        self.assertEqual(self.tip(tip_weather(wind=3, gust=11), tip_forecast(), KISUMU, "lake_wind")["level"],
+                         "caution")
+        # coming in the next 6 hours counts too
+        self.assertIn("lake_wind", self.ids(tip_weather(), tip_forecast(first={"wind": {"speed": 9}}), KISUMU))
+        self.assertNotIn("lake_wind", self.ids(tip_weather(wind=7.9, gust=10.9), tip_forecast(), KISUMU))
+
+    def test_lake_rough_water(self):
+        t = self.tip(tip_weather(wind=11), tip_forecast(), KISUMU, "lake_rough")
+        self.assertEqual((t["level"], t["params"]), ("danger", {"kmh": 40}))
+        t = self.tip(tip_weather(wind=6, gust=15), tip_forecast(), KISUMU, "lake_rough")
+        self.assertEqual(t["params"], {"kmh": 54})
+        ids = self.ids(tip_weather(wind=12), tip_forecast(), KISUMU)
+        self.assertNotIn("lake_wind", ids, "rough water replaces the strong-wind tip")
+
+    def test_lake_thunder(self):
+        for cond in (200, 211, 232):
+            t = self.tip(tip_weather(cond=cond), tip_forecast(), KISUMU, "lake_thunder")
+            self.assertEqual(t["level"], "danger")
+        self.assertIn("lake_thunder", self.ids(tip_weather(), tip_forecast(first={"weather": [{"id": 201}]}),
+                                              KISUMU))
+        # thunder later than 6 hours: not a "now" tip
+        f = tip_forecast()
+        f["list"][4]["weather"] = [{"id": 211}]
+        self.assertNotIn("lake_thunder", self.ids(tip_weather(), f, KISUMU))
+        self.assertNotIn("lake_thunder", self.ids(tip_weather(cond=500), tip_forecast(), KISUMU))
+
+    def test_lake_fog(self):
+        self.assertEqual(self.tip(tip_weather(visibility=800), tip_forecast(), KISUMU, "lake_fog")["level"],
+                         "caution")
+        self.assertIn("lake_fog", self.ids(tip_weather(cond=741), tip_forecast(), KISUMU))
+        self.assertIn("lake_fog", self.ids(tip_weather(cond=701), tip_forecast(), KISUMU))
+        self.assertNotIn("lake_fog", self.ids(tip_weather(visibility=1000), tip_forecast(), KISUMU))
+
+    def test_lake_calm_fishing(self):
+        t = self.tip(tip_weather(wind=2, gust=3), tip_forecast(wind=2), KISUMU, "lake_calm")
+        self.assertEqual(t["level"], "info")
+        self.assertNotIn("lake_calm", self.ids(tip_weather(wind=4), tip_forecast(), KISUMU))
+        self.assertNotIn("lake_calm", self.ids(tip_weather(wind=2, cond=741), tip_forecast(), KISUMU))
+        self.assertNotIn("lake_calm", self.ids(tip_weather(wind=2), tip_forecast(first={"weather": [{"id": 211}]}),
+                                               KISUMU))
+        self.assertNotIn("lake_calm", self.ids(tip_weather(wind=2), {}, KISUMU), "no forecast: not sure")
+
+    # ---- farm rules ----
+    def test_heavy_rain_coming(self):
+        t = self.tip(tip_weather(), tip_forecast(rain=2.5), NAIROBI, "farm_heavy_rain")   # 8 x 2.5 = 20 mm
+        self.assertEqual((t["level"], t["params"]), ("caution", {"mm": 20}))
+        t = self.tip(tip_weather(), tip_forecast(rain=7), NAIROBI, "farm_heavy_rain")
+        self.assertEqual((t["level"], t["params"]), ("danger", {"mm": 56}))
+        # Open-Meteo's day total counts too
+        self.assertIn("farm_heavy_rain", self.ids(tip_weather(), tip_forecast(daily=[{"precipitation": 25}]),
+                                                  NAIROBI))
+        self.assertNotIn("farm_heavy_rain", self.ids(tip_weather(), tip_forecast(rain=2.4), NAIROBI))
+
+    def test_dry_spell_good_drying(self):
+        self.assertEqual(self.tip(tip_weather(humidity=60), tip_forecast(), NAIROBI, "farm_drying")["level"],
+                         "info")
+        self.assertNotIn("farm_drying", self.ids(tip_weather(humidity=75), tip_forecast(), NAIROBI))
+        self.assertNotIn("farm_drying", self.ids(tip_weather(), tip_forecast(pop=0.5), NAIROBI))
+        self.assertNotIn("farm_drying", self.ids(tip_weather(), tip_forecast(rain=0.2), NAIROBI))
+        self.assertNotIn("farm_drying", self.ids(tip_weather(), tip_forecast(n=4), NAIROBI),
+                         "less than a day of forecast: not sure")
+
+    def test_high_humidity_fungus(self):
+        t = self.tip(tip_weather(humidity=90), tip_forecast(humidity=70), NAIROBI, "farm_fungus")
+        self.assertEqual((t["level"], t["params"]), ("caution", {"pct": 90}))
+        t = self.tip(tip_weather(humidity=60), tip_forecast(humidity=88), NAIROBI, "farm_fungus")
+        self.assertEqual(t["params"], {"pct": 88})                      # the 24 h average
+        self.assertNotIn("farm_fungus", self.ids(tip_weather(humidity=84), tip_forecast(humidity=80), NAIROBI))
+        self.assertNotIn("farm_fungus", self.ids(tip_weather(humidity=95, temp=8),
+                                                 tip_forecast(humidity=95, temp=8), ELDORET),
+                         "too cold for fungi")
+
+    def test_strong_sun_uv(self):
+        t = self.tip(tip_weather(uv=8), tip_forecast(), NAIROBI, "farm_uv")
+        self.assertEqual((t["level"], t["params"]), ("caution", {"uv": 8}))
+        self.assertEqual(self.tip(tip_weather(uv=11.4), tip_forecast(), NAIROBI, "farm_uv")["level"], "danger")
+        self.assertIn("farm_uv", self.ids(tip_weather(), tip_forecast(daily=[{"uv_max": 9}]), NAIROBI))
+        self.assertNotIn("farm_uv", self.ids(tip_weather(uv=7.9), tip_forecast(), NAIROBI))
+
+    def test_frost_highlands(self):
+        t = self.tip(tip_weather(temp=10), tip_forecast(temp=8, temp_min=3), ELDORET, "farm_frost")
+        self.assertEqual((t["level"], t["params"]), ("caution", {"temp": 3}))
+        t = self.tip(tip_weather(temp=10), tip_forecast(temp=8, daily=[{"temp_min": 0.5}]), ELDORET, "farm_frost")
+        self.assertEqual((t["level"], t["params"]), ("danger", {"temp": 0}))
+        self.assertNotIn("farm_frost", self.ids(tip_weather(temp=12), tip_forecast(temp=9, temp_min=4.1), ELDORET))
+
+    def test_good_planting_after_rain(self):
+        self.assertEqual(self.tip(tip_weather(), tip_forecast(daily=[{"precipitation": 12}]), NAIROBI,
+                                  "farm_planting")["level"], "info")
+        self.assertNotIn("farm_planting", self.ids(tip_weather(), tip_forecast(daily=[{"precipitation": 9}]),
+                                                   NAIROBI))
+        # not when heavy rain is coming or a storm is on
+        self.assertNotIn("farm_planting", self.ids(tip_weather(), tip_forecast(daily=[{"precipitation": 30}]),
+                                                   NAIROBI))
+        self.assertNotIn("farm_planting", self.ids(tip_weather(cond=211),
+                                                   tip_forecast(daily=[{"precipitation": 12}]), NAIROBI))
+
+    # ---- limit, order, language, bad data ----
+    def test_at_most_three_most_important_first(self):
+        # Everything at once on the lake in Kenya.
+        w = tip_weather(wind=12, cond=211, visibility=500, humidity=95, uv=12)
+        f = tip_forecast(rain=8, humidity=95, temp_min=0, daily=[{"precipitation": 70, "temp_min": 0}])
+        tips = weather_app.tips_for(w, f, *KISUMU, "en")
+        self.assertEqual(len(tips), 3)
+        self.assertEqual([t["id"] for t in tips], ["lake_thunder", "lake_rough", "farm_heavy_rain"])
+        self.assertTrue(all(t["level"] == "danger" for t in tips))
+        # the full ranking: danger before caution before info, then the fixed order
+        rules = weather_app.tip_rules(tip_weather(wind=9, uv=9, humidity=90),
+                                      tip_forecast(humidity=90, daily=[{"precipitation": 12}]), *KISUMU)
+        self.assertEqual([r["id"] for r in rules], ["lake_wind", "farm_uv", "farm_fungus"])
+        levels = [weather_app.TIP_LEVELS.index(r["level"]) for r in rules]
+        self.assertEqual(levels, sorted(levels))
+        self.assertEqual(weather_app.TIPS_MAX, 3)
+
+    def test_english_and_kiswahili(self):
+        w, f = tip_weather(wind=9, uv=9), tip_forecast()
+        en = weather_app.tips_for(w, f, *KISUMU, "en")
+        sw = weather_app.tips_for(w, f, *KISUMU, "sw")
+        self.assertEqual([t["id"] for t in en], [t["id"] for t in sw])
+        self.assertEqual(en[0]["text"], "Strong wind on the water: up to 32 km/h. Small boats stay close to shore.")
+        self.assertEqual(sw[0]["text"], "Upepo mkali majini: hadi km/h 32. Mashua ndogo zikae karibu na ufuo.")
+        # every tip has Kiswahili, the same {numbers}, and fits 3 phone lines
+        import re
+        for tip_id, english in weather_app.TIP_TEXTS.items():
+            swahili = weather_app.SW_MESSAGES.get(english)
+            self.assertTrue(swahili and swahili != english, tip_id)
+            self.assertEqual(sorted(re.findall(r"\{\w+\}", english)), sorted(re.findall(r"\{\w+\}", swahili)))
+            self.assertLessEqual(len(english), 110, tip_id)
+            self.assertLessEqual(len(swahili), 110, tip_id)
+        self.assertEqual(set(weather_app.TIP_TEXTS), set(weather_app.TIP_ORDER))
+
+    def test_page_has_the_same_texts(self):
+        import re
+        with open(os.path.join(CleanupTests.ROOT, "static", "app.js"), encoding="utf-8") as fh:
+            js = fh.read()
+        for tip_id, english in weather_app.TIP_TEXTS.items():
+            m = re.search(rf'\n    tip_{tip_id}: \{{ en: ("[^"]*"), sw: ("[^"]*") \}},', js)
+            self.assertIsNotNone(m, f"tip_{tip_id} missing from I18N")
+            self.assertEqual(json.loads(m.group(1)), english)
+            self.assertEqual(json.loads(m.group(2)), weather_app.SW_MESSAGES[english])
+        self.assertRegex(js, r'\n    tips_title: +\{ en: "[^"]+", sw: "[^"]+" \},')
+
+    def test_missing_or_bad_data_never_crashes(self):
+        cases = [
+            ({}, {}), (None, None), ({"weather": None, "main": None, "wind": None}, {"list": None}),
+            ({"main": {"temp": "hot", "humidity": None}, "wind": {"speed": "fast"}, "weather": [None],
+              "uv": "high", "visibility": float("nan"), "sys": {"country": "KE"}},
+             {"list": [None, {"main": None}, {"rain": {"3h": "lots"}, "wind": None, "weather": "x"}],
+              "daily": [None, {"precipitation": None, "temp_min": "cold"}]}),
+            (tip_weather(), {"list": "nope", "daily": "nope"}),
+        ]
+        for w, f in cases:
+            for place in (KISUMU, NAIROBI, (None, None), ("a", "b")):
+                for lang in ("en", "sw", "fr"):
+                    tips = weather_app.tips_for(w, f, *place, lang)
+                    self.assertIsInstance(tips, list)
+                    self.assertLessEqual(len(tips), 3)
+
+    # ---- in the weather reply ----
+    def test_weather_full_carries_tips_in_both_languages(self):
+        weather_app.cache.clear()
+        client = weather_app.app.test_client()
+        with mock.patch.object(weather_app.http, "get", side_effect=router):
+            en = client.get("/weather-full?lat=-0.1&lon=34.75").get_json()["weather"]["tips"]
+            sw = client.get("/weather-full?lat=-0.1&lon=34.75&lang=sw").get_json()["weather"]["tips"]
+        # The test data: Kisumu, UV max 9.5 today, light wind (no wind given) -> sun tip only.
+        self.assertEqual([t["id"] for t in en], ["farm_uv"])
+        self.assertEqual(en[0], {"id": "farm_uv", "level": "caution", "params": {"uv": 10},
+                                 "text": weather_app.TIP_TEXTS["farm_uv"].format(uv=10)})
+        self.assertEqual(sw[0]["text"], weather_app.SW_MESSAGES[weather_app.TIP_TEXTS["farm_uv"]].format(uv=10))
+        # cached once, language-free; the cached weather itself isn't changed
+        keys = [k for k in weather_app.cache._data if str(k).startswith("tips:")]
+        self.assertEqual(len(keys), 1)
+        self.assertNotIn("text", weather_app.cache.get(keys[0])[0])
+        self.assertNotIn("tips", weather_app.cache.get("cur:" + weather_app.coord_key(-0.1, 34.75)))
+
+    def test_tips_failing_never_breaks_the_reply(self):
+        weather_app.cache.clear()
+        client = weather_app.app.test_client()
+        with mock.patch.object(weather_app.http, "get", side_effect=router), \
+             mock.patch.object(weather_app, "tip_rules", side_effect=RuntimeError("boom")), \
+             self.assertLogs(weather_app.log, "ERROR"):
+            r = client.get("/weather-full?lat=-0.1&lon=34.75")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.get_json()["weather"]["tips"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

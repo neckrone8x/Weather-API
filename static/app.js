@@ -243,6 +243,19 @@ const I18N = {
     rel_h_1:           { en: "1 hour ago", sw: "saa 1 iliyopita" },
     rel_h:             { en: "{n} hours ago", sw: "saa {n} zilizopita" },
     old_data:          { en: "Old data, may be wrong", sw: "Data ya zamani, huenda si sahihi" },
+    // Lake and farm tips: the same texts as the server's TIP_TEXTS (a test keeps them equal)
+    tips_title:        { en: "🌾 Lake and farm tips", sw: "🌾 Ushauri wa ziwa na shamba" },
+    tip_lake_thunder: { en: "Thunderstorms likely within 6 hours. Get off the water and away from the shore.", sw: "Radi zinatarajiwa ndani ya saa 6. Toka majini na ukae mbali na ufuo." },
+    tip_lake_rough: { en: "Rough water: wind up to {kmh} km/h. Do not go out in small boats.", sw: "Maji yamechafuka: upepo hadi km/h {kmh}. Usiende na mashua ndogo." },
+    tip_lake_wind: { en: "Strong wind on the water: up to {kmh} km/h. Small boats stay close to shore.", sw: "Upepo mkali majini: hadi km/h {kmh}. Mashua ndogo zikae karibu na ufuo." },
+    tip_lake_fog: { en: "Fog or mist: low visibility on the water. Go slowly and carry a light and a phone.", sw: "Ukungu: huoni mbali majini. Endesha polepole, beba taa na simu." },
+    tip_lake_calm: { en: "Calm water and light wind: good weather for fishing.", sw: "Maji yametulia na upepo ni mdogo: hali nzuri ya kuvua samaki." },
+    tip_farm_heavy_rain: { en: "Heavy rain coming: about {mm} mm in 24 hours. Delay spraying and harvest, and cover drying crops.", sw: "Mvua kubwa inakuja: karibu mm {mm} kwa saa 24. Ahirisha dawa na mavuno; funika mazao yanayokaushwa." },
+    tip_farm_frost: { en: "Frost risk: down to {temp}°C in the next 2 days. Cover seedlings and nurseries.", sw: "Hatari ya baridi kali (barafu): hadi {temp}°C ndani ya siku 2. Funika miche na vitalu." },
+    tip_farm_uv: { en: "Strong sun today (UV {uv}). Field workers: cover up, drink water, rest in the shade at midday.", sw: "Jua kali leo (UV {uv}). Wafanyakazi shambani: jifunikeni, kunyweni maji, pumzikeni kivulini mchana." },
+    tip_farm_fungus: { en: "Very humid ({pct}%): high risk of fungal disease such as blight. Check crops and spray if needed.", sw: "Unyevu mwingi ({pct}%): hatari ya magonjwa ya kuvu kama baka. Kagua mazao, nyunyizia dawa ikihitajika." },
+    tip_farm_drying: { en: "Dry days ahead: good for drying maize and coffee.", sw: "Siku kavu zinakuja: nzuri kwa kukausha mahindi na kahawa." },
+    tip_farm_planting: { en: "The soil is moist after rain: good conditions for planting.", sw: "Udongo una unyevu baada ya mvua: hali nzuri ya kupanda." },
     earlier:           { en: "earlier", sw: "awali" },
     retry:             { en: "Retry", sw: "Jaribu tena" },
     retrying:          { en: "Retrying…", sw: "Inajaribu tena…" },
@@ -2538,6 +2551,8 @@ function displayWeather(data, opts = {}) {
         return;
     }
 
+    renderTips(data.tips);
+
     const weather = data.weather?.[0] || {};
     const main = data.main || {};
     const wind = data.wind || {};
@@ -3304,6 +3319,42 @@ function isShowingPlace(lat, lon) {
         Math.abs(Number(loc.lon) - Number(lon)) < 0.01);
 }
 
+/* =========================================================
+   LAKE AND FARM TIPS — from the server's rules (weather.tips), at most 3.
+   Texts come from I18N by id (so a language switch redraws them), else the
+   server's own text. Hidden when there are none.
+========================================================= */
+const TIP_LEVELS = ["danger", "caution", "info"];
+const TIP_ICONS = { danger: "⛔", caution: "⚠️", info: "💡" };
+
+function renderTips(tips) {
+    const card = getElement("tips-card");
+    const list = getElement("tips-list");
+    if (!card || !list) return;
+    list.textContent = "";
+    const shown = (Array.isArray(tips) ? tips : [])
+        .filter(tip => tip && typeof tip.id === "string" && TIP_LEVELS.includes(tip.level))
+        .slice(0, 3);
+    for (const tip of shown) {
+        const key = `tip_${tip.id}`;
+        const text = I18N[key] ? t(key, tip.params || {}) : String(tip.text || "");
+        if (!text) continue;
+        const item = document.createElement("li");
+        item.className = `tip tip-${tip.level}`;
+        const icon = document.createElement("span");
+        icon.className = "tip-icon";
+        icon.setAttribute("aria-hidden", "true");
+        icon.textContent = TIP_ICONS[tip.level];
+        const words = document.createElement("span");
+        words.className = "tip-text";
+        words.textContent = text;
+        item.appendChild(icon);
+        item.appendChild(words);
+        list.appendChild(item);
+    }
+    card.hidden = list.children.length === 0;
+}
+
 function showWeatherPair(weather, forecast, opts = {}) {
     displayWeather(weather, opts);
     renderHourlyForecast(forecast);
@@ -3320,6 +3371,7 @@ function setLoadingUi(message) {
     if (temperatureElement) temperatureElement.textContent = `--${tempUnit()}`;
     if (forecastLocation) forecastLocation.textContent = t("loading");
     setLoadingState();
+    renderTips([]);
     window._currentWeatherData = null;
 }
 

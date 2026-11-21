@@ -15,7 +15,7 @@
    Bump CACHE_NAME with every release that changes a file below, so phones
    fetch the new files at once (the old cache is deleted on activate).
 ========================================================= */
-const CACHE_NAME = "neckrone8x-weather-v32";
+const CACHE_NAME = "neckrone8x-weather-v33";
 
 // How long to wait for the network before serving the saved page.
 const PAGE_WAIT_MS = 8000;

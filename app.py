@@ -80,6 +80,63 @@ TTL_IP = 21600
 TTL_ALERTS = 900
 TTL_STALE = 7 * 86400     # last good copy, served only when the live call can't be made
 
+# Lake and farm tips (tips_for). Units are OpenWeatherMap metric: m/s, mm, °C, %.
+# No extra calls: everything comes from the weather + forecast we already fetch.
+TIPS_MAX = 3                     # tips per place, most important first
+TIP_WATER_KM = 15                # lake tips within this distance of the water
+TIP_SOON_SLOTS = 2               # forecast slots (3 h each) counted as "soon": 6 h
+TIP_DAY_SLOTS = 8                # 24 h
+TIP_TWO_DAY_SLOTS = 16           # 48 h
+WIND_STRONG_MS = 8.0             # ~29 km/h, Beaufort 5: small boats take care
+GUST_STRONG_MS = 11.0            # ~40 km/h
+WIND_ROUGH_MS = 11.0             # ~40 km/h, Beaufort 6: rough water, stay ashore
+GUST_ROUGH_MS = 15.0             # ~54 km/h
+WIND_CALM_MS = 4.0               # ~14 km/h: calm, good fishing weather
+GUST_CALM_MS = 6.0
+LOW_VISIBILITY_M = 1000          # fog / mist on the water
+FOG_IDS = frozenset({701, 741})  # OWM mist, fog
+THUNDER_IDS = frozenset(range(200, 233))   # OWM 2xx thunderstorm
+HEAVY_RAIN_MM_24H = 20.0         # rain in the next 24 h: delay spraying/harvest
+VERY_HEAVY_RAIN_MM_24H = 50.0    # ...and this much is a danger (floods, washed fields)
+DRY_RAIN_MM_48H = 1.0            # at most this much rain in 48 h...
+DRY_MAX_POP = 0.3                # ...no slot more than 30 % likely to rain...
+DRY_MAX_HUMIDITY = 70            # ...and air dry enough to dry crops
+HUMID_PCT = 85                   # fungal disease risk (now or the 24 h average)...
+HUMID_MIN_TEMP_C = 12            # ...when it is warm enough for fungi to grow
+UV_HIGH = 8                      # WHO "very high": cover up in the fields
+UV_EXTREME = 11                  # WHO "extreme"
+FROST_TEMP_C = 4.0               # air this cold (2 m) can mean ground frost in the highlands
+FROST_DANGER_C = 1.0
+PLANT_RAIN_TODAY_MM = 10.0       # today's rain that leaves the soil moist enough to plant
+
+# Water for the lake tips: ("name", "area" outline | "line" shore, [(lat, lon), ...]).
+# Rough outlines: within TIP_WATER_KM of an edge (or inside) counts as "on the water".
+TIP_WATERS = (
+    ("Lake Victoria", "area", [
+        (-0.10, 34.75), (-0.36, 34.64), (-0.52, 34.45), (-0.43, 34.21), (-0.85, 34.15),
+        (-1.01, 34.07), (-1.50, 33.80), (-2.20, 33.70), (-2.52, 32.90), (-2.65, 32.00),
+        (-1.85, 31.65), (-1.33, 31.82), (-0.95, 31.75), (-0.31, 32.03), (0.05, 32.46),
+        (0.29, 32.65), (0.43, 33.20), (0.24, 33.97), (0.10, 33.97), (-0.07, 34.05),
+        (-0.08, 34.45)]),
+    ("Lake Turkana", "area", [
+        (2.42, 36.58), (2.75, 36.72), (3.20, 36.52), (3.65, 36.33), (3.95, 36.20),
+        (4.30, 36.23), (4.60, 36.05), (4.45, 35.95), (4.27, 35.88), (3.55, 35.90),
+        (3.25, 35.97), (2.85, 36.15), (2.55, 36.40)]),
+    ("Lake Baringo", "area", [
+        (0.72, 36.07), (0.66, 36.13), (0.55, 36.10), (0.53, 36.05), (0.60, 36.00), (0.68, 36.02)]),
+    ("Lake Naivasha", "area", [
+        (-0.70, 36.33), (-0.72, 36.42), (-0.80, 36.42), (-0.85, 36.35), (-0.80, 36.28),
+        (-0.73, 36.29)]),
+    ("Lake Nakuru", "area", [
+        (-0.31, 36.08), (-0.34, 36.12), (-0.40, 36.11), (-0.41, 36.07), (-0.36, 36.05)]),
+    ("Lake Elementaita", "area", [
+        (-0.42, 36.24), (-0.44, 36.27), (-0.48, 36.26), (-0.47, 36.23)]),
+    ("Indian Ocean coast", "line", [
+        (-4.68, 39.20), (-4.65, 39.38), (-4.30, 39.59), (-4.05, 39.67), (-3.63, 39.86),
+        (-3.35, 40.03), (-3.22, 40.12), (-2.53, 40.53), (-2.27, 40.90), (-1.75, 41.49),
+        (-1.66, 41.56)]),
+)
+
 
 # =================================
 # THREAD-SAFE TTL + LRU CACHE
@@ -256,6 +313,36 @@ SW_MESSAGES = {
     "Good": "Nzuri", "Fair": "Ya kuridhisha", "Moderate": "Wastani",
     "Poor": "Mbaya", "Very Poor": "Mbaya sana",
 }
+
+# Lake and farm tips by id: English text ({...} = numbers filled in).
+# The page has the same texts in its I18N table (tip_<id>; a test keeps them equal),
+# so a language switch redraws them without asking the server again.
+TIP_TEXTS = {
+    "lake_thunder": "Thunderstorms likely within 6 hours. Get off the water and away from the shore.",
+    "lake_rough": "Rough water: wind up to {kmh} km/h. Do not go out in small boats.",
+    "lake_wind": "Strong wind on the water: up to {kmh} km/h. Small boats stay close to shore.",
+    "lake_fog": "Fog or mist: low visibility on the water. Go slowly and carry a light and a phone.",
+    "lake_calm": "Calm water and light wind: good weather for fishing.",
+    "farm_heavy_rain": "Heavy rain coming: about {mm} mm in 24 hours. Delay spraying and harvest, and cover drying crops.",
+    "farm_frost": "Frost risk: down to {temp}°C in the next 2 days. Cover seedlings and nurseries.",
+    "farm_uv": "Strong sun today (UV {uv}). Field workers: cover up, drink water, rest in the shade at midday.",
+    "farm_fungus": "Very humid ({pct}%): high risk of fungal disease such as blight. Check crops and spray if needed.",
+    "farm_drying": "Dry days ahead: good for drying maize and coffee.",
+    "farm_planting": "The soil is moist after rain: good conditions for planting.",
+}
+SW_MESSAGES.update({
+    TIP_TEXTS["lake_thunder"]: "Radi zinatarajiwa ndani ya saa 6. Toka majini na ukae mbali na ufuo.",
+    TIP_TEXTS["lake_rough"]: "Maji yamechafuka: upepo hadi km/h {kmh}. Usiende na mashua ndogo.",
+    TIP_TEXTS["lake_wind"]: "Upepo mkali majini: hadi km/h {kmh}. Mashua ndogo zikae karibu na ufuo.",
+    TIP_TEXTS["lake_fog"]: "Ukungu: huoni mbali majini. Endesha polepole, beba taa na simu.",
+    TIP_TEXTS["lake_calm"]: "Maji yametulia na upepo ni mdogo: hali nzuri ya kuvua samaki.",
+    TIP_TEXTS["farm_heavy_rain"]: "Mvua kubwa inakuja: karibu mm {mm} kwa saa 24. Ahirisha dawa na mavuno; funika mazao yanayokaushwa.",
+    TIP_TEXTS["farm_frost"]: "Hatari ya baridi kali (barafu): hadi {temp}°C ndani ya siku 2. Funika miche na vitalu.",
+    TIP_TEXTS["farm_uv"]: "Jua kali leo (UV {uv}). Wafanyakazi shambani: jifunikeni, kunyweni maji, pumzikeni kivulini mchana.",
+    TIP_TEXTS["farm_fungus"]: "Unyevu mwingi ({pct}%): hatari ya magonjwa ya kuvu kama baka. Kagua mazao, nyunyizia dawa ikihitajika.",
+    TIP_TEXTS["farm_drying"]: "Siku kavu zinakuja: nzuri kwa kukausha mahindi na kahawa.",
+    TIP_TEXTS["farm_planting"]: "Udongo una unyevu baada ya mvua: hali nzuri ya kupanda.",
+})
 
 
 def tr(text, lang=None):
@@ -1163,6 +1250,198 @@ def weather():
 
 
 # =================================
+# LAKE AND FARM TIPS — simple rules on the weather we already have
+# (thresholds and the water list are at the top of the file)
+# =================================
+TIP_LEVELS = ("danger", "caution", "info")       # most important first
+TIP_ORDER = ("lake_thunder", "lake_rough", "farm_heavy_rain", "lake_wind", "lake_fog",
+             "farm_frost", "farm_uv", "farm_fungus", "farm_drying", "farm_planting", "lake_calm")
+
+
+def _num(value, default=None):
+    """A finite float, else `default` (missing or bad data never raises)."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return default
+    return v if math.isfinite(v) else default
+
+
+def _km_from_edge(lat, lon, a, b):
+    """km from (lat, lon) to the segment a-b (flat map; fine at lake size)."""
+    k_lat = 110.57
+    k_lon = 111.32 * math.cos(math.radians(lat))
+    ax, ay = (a[1] - lon) * k_lon, (a[0] - lat) * k_lat
+    bx, by = (b[1] - lon) * k_lon, (b[0] - lat) * k_lat
+    dx, dy = bx - ax, by - ay
+    length2 = dx * dx + dy * dy
+    t = 0.0 if length2 == 0 else max(0.0, min(1.0, -(ax * dx + ay * dy) / length2))
+    return math.hypot(ax + t * dx, ay + t * dy)
+
+
+def _inside(lat, lon, points):
+    """Point in polygon (ray casting on lat/lon)."""
+    inside = False
+    j = len(points) - 1
+    for i, (yi, xi) in enumerate(points):
+        yj, xj = points[j]
+        if (yi > lat) != (yj > lat) and lon < (xj - xi) * (lat - yi) / (yj - yi) + xi:
+            inside = not inside
+        j = i
+    return inside
+
+
+def water_km(lat, lon):
+    """(name, km) of the nearest water in TIP_WATERS (0 inside a lake), or (None, None)."""
+    lat, lon = _num(lat), _num(lon)
+    if lat is None or lon is None:
+        return None, None
+    best = (None, None)
+    for name, kind, points in TIP_WATERS:
+        if kind == "area" and _inside(lat, lon, points):
+            return name, 0.0
+        edges = list(zip(points, points[1:]))
+        if kind == "area":
+            edges.append((points[-1], points[0]))
+        km = min(_km_from_edge(lat, lon, a, b) for a, b in edges)
+        if best[1] is None or km < best[1]:
+            best = (name, km)
+    return best
+
+
+def in_kenya(weather):
+    """True when the place's country is Kenya (searched place first, then OWM's)."""
+    if not isinstance(weather, dict):
+        return False
+    loc = weather.get("searched_location") or {}
+    sys_ = weather.get("sys") or {}
+    country = (loc.get("country") if isinstance(loc, dict) else None) or sys_.get("country") or ""
+    return str(country).strip().lower() in ("ke", "kenya")
+
+
+def _condition_id(item):
+    w = (item or {}).get("weather") or []
+    first = w[0] if isinstance(w, list) and w and isinstance(w[0], dict) else {}
+    return int(_num(first.get("id"), 0))
+
+
+def tip_rules(weather, forecast, lat, lon):
+    """The tips that apply, language-free: [{"id", "level", "params"}], at most
+    TIPS_MAX, most important first. Pure: same data in, same tips out."""
+    weather = weather if isinstance(weather, dict) else {}
+    forecast = forecast if isinstance(forecast, dict) else {}
+    slots = [i for i in (forecast.get("list") or []) if isinstance(i, dict)]
+    daily = [d for d in (forecast.get("daily") or []) if isinstance(d, dict)]
+    main = weather.get("main") or {}
+    wind = weather.get("wind") or {}
+
+    def slot(i, *path, default=None):
+        v = i
+        for key in path:
+            v = v.get(key) if isinstance(v, dict) else None
+        return _num(v, default)
+
+    soon = slots[:TIP_SOON_SLOTS]
+    day = slots[:TIP_DAY_SLOTS]
+    two_days = slots[:TIP_TWO_DAY_SLOTS]
+    found = {}
+
+    # ---- on the water ----
+    _, km = water_km(lat, lon)
+    if km is not None and km <= TIP_WATER_KM:
+        winds = [_num(wind.get("speed"), 0)] + [slot(i, "wind", "speed", default=0) for i in soon]
+        gusts = [_num(wind.get("gust"), 0)] + [slot(i, "wind", "gust", default=0) for i in soon]
+        top_wind, top_gust = max(winds), max(gusts)
+        kmh = round(max(top_wind, top_gust) * 3.6)
+        ids_soon = [_condition_id(weather)] + [_condition_id(i) for i in soon]
+        if any(c in THUNDER_IDS for c in ids_soon):
+            found["lake_thunder"] = ("danger", {})
+        if top_wind >= WIND_ROUGH_MS or top_gust >= GUST_ROUGH_MS:
+            found["lake_rough"] = ("danger", {"kmh": kmh})
+        elif top_wind >= WIND_STRONG_MS or top_gust >= GUST_STRONG_MS:
+            found["lake_wind"] = ("caution", {"kmh": kmh})
+        visibility = _num(weather.get("visibility"))
+        if (visibility is not None and visibility < LOW_VISIBILITY_M) or _condition_id(weather) in FOG_IDS:
+            found["lake_fog"] = ("caution", {})
+        if (not found and slots and wind.get("speed") is not None
+                and top_wind < WIND_CALM_MS and top_gust < GUST_CALM_MS):
+            found["lake_calm"] = ("info", {})
+
+    # ---- on the farm (Kenya only) ----
+    if in_kenya(weather):
+        rain_day = sum(slot(i, "rain", "3h", default=0) for i in day)
+        if daily:
+            rain_day = max(rain_day, _num(daily[0].get("precipitation"), 0))
+        if rain_day >= HEAVY_RAIN_MM_24H:
+            level = "danger" if rain_day >= VERY_HEAVY_RAIN_MM_24H else "caution"
+            found["farm_heavy_rain"] = (level, {"mm": round(rain_day)})
+
+        lows = [slot(i, "main", "temp_min") for i in two_days] + \
+               [_num(d.get("temp_min")) for d in daily[:2]] + [_num(main.get("temp_min"))]
+        lows = [v for v in lows if v is not None]
+        if lows and min(lows) <= FROST_TEMP_C:
+            low = min(lows)
+            found["farm_frost"] = ("danger" if low <= FROST_DANGER_C else "caution", {"temp": round(low)})
+
+        uv_info = weather.get("uv") if isinstance(weather.get("uv"), dict) else {}
+        uv = _num(uv_info.get("max_today"))
+        if uv is None:
+            uv = _num(uv_info.get("value"))
+        if uv is None and daily:
+            uv = _num(daily[0].get("uv_max"))
+        if uv is not None and uv >= UV_HIGH:
+            found["farm_uv"] = ("danger" if uv >= UV_EXTREME else "caution", {"uv": round(uv)})
+
+        humidity = _num(main.get("humidity"))
+        temp = _num(main.get("temp"))
+        hums = [v for v in (slot(i, "main", "humidity") for i in day) if v is not None]
+        avg_hum = sum(hums) / len(hums) if hums else None
+        humid = max(v for v in (humidity, avg_hum, -1) if v is not None)
+        warm = [v for v in [temp] + [slot(i, "main", "temp") for i in day] if v is not None]
+        if humid >= HUMID_PCT and warm and max(warm) >= HUMID_MIN_TEMP_C:
+            found["farm_fungus"] = ("caution", {"pct": round(humid)})
+
+        if len(two_days) >= TIP_DAY_SLOTS:
+            rain_two = sum(slot(i, "rain", "3h", default=0) for i in two_days)
+            pop_two = max(slot(i, "pop", default=0) for i in two_days)
+            if (rain_two <= DRY_RAIN_MM_48H and pop_two <= DRY_MAX_POP
+                    and humidity is not None and humidity <= DRY_MAX_HUMIDITY):
+                found["farm_drying"] = ("info", {})
+
+        rain_today = _num(daily[0].get("precipitation"), 0) if daily else 0
+        if (rain_today >= PLANT_RAIN_TODAY_MM and "farm_heavy_rain" not in found
+                and "lake_thunder" not in found and _condition_id(weather) not in THUNDER_IDS):
+            found["farm_planting"] = ("info", {})
+
+    order = sorted(found, key=lambda k: (TIP_LEVELS.index(found[k][0]), TIP_ORDER.index(k)))
+    return [{"id": k, "level": found[k][0], "params": found[k][1]} for k in order[:TIPS_MAX]]
+
+
+def tips_for(weather, forecast, lat, lon, lang):
+    """Lake and farm tips for a place in `lang`:
+    [{"id", "level": info|caution|danger, "text", "params"}], at most TIPS_MAX."""
+    return _with_text(tip_rules(weather, forecast, lat, lon), lang)
+
+
+def _with_text(rules, lang):
+    """Copies of the tips with their text in `lang`."""
+    return [dict(t, text=tr(TIP_TEXTS[t["id"]], lang).format(**t["params"])) for t in rules]
+
+
+def cached_tips(weather, forecast, lat, lon, lang):
+    """tips_for, with the language-free rules cached along with the weather they
+    come from (same place + same readings -> same tips)."""
+    stamp = ((weather or {}).get("dt"), ((forecast or {}).get("list") or [{}])[0].get("dt"),
+             bool((forecast or {}).get("daily")), in_kenya(weather))
+    key = f"tips:{coord_key(lat, lon)}:{stamp}"
+    rules = cache.get(key)
+    if rules is None:
+        rules = tip_rules(weather, forecast, lat, lon)
+        cache.set(key, rules, TTL_WEATHER)
+    return _with_text(rules, lang)
+
+
+# =================================
 # COMBINED WEATHER + FORECAST + DAILY OUTLOOK (one request)
 # =================================
 @app.route("/weather-full")
@@ -1188,6 +1467,11 @@ def weather_full():
         w["uv"] = {"value": om["uv"], "max_today": om["uv_max_today"]}
 
     lang = request_lang()
+    try:
+        w["tips"] = cached_tips(w, f, lat, lon, lang)   # an extra: never breaks the reply
+    except Exception:
+        log.exception("tips failed")
+        w["tips"] = []
     return jsonify({"weather": localize_weather(w, lang), "forecast": localize_forecast(f, lang)})
 
 
