@@ -1,35 +1,55 @@
 /* =========================================================
    NECKRONE8X WEATHER — SERVICE WORKER
    Strategy:
-     - HTML / CSS / JS  → network-first (always get fresh code)
-     - API calls        → network-first, last good copy as offline fallback
-     - Images / icons   → cache-first (they rarely change)
+     - the page (HTML)       → network-first, the saved page shell offline
+     - scripts, styles,
+       icons, libraries      → cache-first, refreshed in the background, so
+                               the app opens with no network at all
+     - API calls             → not touched: they go straight to the network.
+                               The page keeps its own saved forecasts (per
+                               place, in localStorage) and shows them offline.
    Rules that keep it from ever breaking a request:
      - every path ends in a real Response (never "nothing")
-     - only good (200 OK) replies are saved, never errors (a 429 "slow down"
-       reply goes straight to the page, which shows its own message + Retry)
+     - only good (200 OK) replies are saved, never errors
      - /health always goes straight to the server
-     - the network gets a time limit: if it hangs, the saved copy is
-       served (marked X-SW-Fallback: 1 so the page can say so)
+   Bump CACHE_NAME with every release that changes a file below, so phones
+   fetch the new files at once (the old cache is deleted on activate).
 ========================================================= */
-const CACHE_NAME = "neckrone8x-weather-v31";
+const CACHE_NAME = "neckrone8x-weather-v32";
 
-// How long to wait for the network before serving the saved copy.
-// Kept under the page's own 20 s fetch timeout.
-const API_WAIT_MS = 12000;
+// How long to wait for the network before serving the saved page.
 const PAGE_WAIT_MS = 8000;
 // With nothing saved, keep waiting up to this long, then give up.
 const HARD_LIMIT_MS = 25000;
 
+// Saved at install: everything the page needs to open offline. The URLs must
+// match the template exactly (including ?v=), so a test checks them.
 const APP_SHELL = [
     "/",
+    "/manifest.json",
+    "/static/style.css?v=2",
+    "/static/app.js",
+    "/static/earth.js",
+    "/static/mkuu-helper.css?v=2",
+    "/static/mkuu-weather-context.js?v=2",
+    "/static/mkuu-helper.js?v=3",
     "/static/icon-192.png",
     "/static/icon-512.png"
 ];
 
+// Pinned (versioned, never-changing) libraries from CDNs, cache-first too.
+// Analytics and map tiles are left alone.
+const LIBRARIES = [
+    "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js",
+    "https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js",
+    "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
+    "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+];
+
+// The app's own data: never cached here.
 const API_PREFIXES = [
-    "/weather", "/locations", "/uv", "/air",
-    "/reverse", "/my-location", "/local-alerts", "/global-alerts"
+    "/weather", "/weather-full", "/locations", "/uv", "/air", "/reverse", "/my-location",
+    "/local-alerts", "/global-alerts", "/feedback", "/health"
 ];
 
 const OFFLINE_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -47,13 +67,6 @@ const OFFLINE_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"
 <button onclick="location.reload()">Try again</button>
 </div></body></html>`;
 
-function offlineJson() {
-    return new Response(
-        JSON.stringify({ cod: 503, message: "The weather service is waking up. Please try again in a moment." }),
-        { status: 503, headers: { "Content-Type": "application/json" } }
-    );
-}
-
 function offlineHtml() {
     return new Response(OFFLINE_PAGE, {
         status: 503,
@@ -61,9 +74,13 @@ function offlineHtml() {
     });
 }
 
-/* Save a copy, but only of a good reply, and never let saving break anything. */
+/* Save a copy, but only of a good reply, and never let saving break anything.
+   (An opaque reply is a library loaded without CORS: it can't be checked, so
+   only the pinned LIBRARIES may be saved that way.) */
 function remember(request, response) {
-    if (!response || !response.ok || response.type === "opaque") return;
+    if (!response) return;
+    const lib = LIBRARIES.includes(request.url || request);
+    if (response.type === "opaque" ? !lib : !response.ok) return;
     const copy = response.clone();
     caches.open(CACHE_NAME)
         .then(cache => cache.put(request, copy))
@@ -147,12 +164,38 @@ self.addEventListener("message", (event) => {
     }
 });
 
+/* Cache-first: the saved copy at once (refreshed in the background for next
+   time), else the network (and save it), else an empty 503. */
+async function cacheFirst(request, event) {
+    const cached = await fromCache(request);
+    const network = fetch(request).then(response => {
+        remember(request, response);
+        return response;
+    });
+    if (cached) {
+        network.catch(() => { /* offline: the saved copy is enough */ });
+        if (event && typeof event.waitUntil === "function") {
+            event.waitUntil(network.then(() => {}, () => {}));
+        }
+        return cached;
+    }
+    try {
+        return await network;
+    } catch (e) {
+        return new Response("", { status: 503 });
+    }
+}
+
 /* ---------- Install ---------- */
 self.addEventListener("install", (event) => {
     self.skipWaiting();
     event.waitUntil(
         caches.open(CACHE_NAME)
-            .then(cache => cache.addAll(APP_SHELL))
+            .then(cache => Promise.all([
+                // One by one: a single missing file must not stop the others.
+                ...APP_SHELL.map(url => cache.add(url).catch(() => {})),
+                ...LIBRARIES.map(url => cache.add(new Request(url, { mode: "cors" })).catch(() => {}))
+            ]))
             .catch(err => console.warn("SW install: app shell not cached yet:", err))
     );
 });
@@ -176,42 +219,30 @@ self.addEventListener("fetch", (event) => {
 
     let url;
     try { url = new URL(request.url); } catch (e) { return; }
-    if (url.origin !== self.location.origin) return;
 
-    // Health checks must always reach the real server.
-    if (url.pathname === "/health") return;
-
-    // 1) API calls
-    if (API_PREFIXES.some(p => url.pathname.startsWith(p))) {
-        event.respondWith(networkFirst(request, offlineJson, API_WAIT_MS));
+    // Pinned libraries from CDNs: cache-first. Anything else from another
+    // site (analytics, map tiles, Mkuu) is left to the browser.
+    if (url.origin !== self.location.origin) {
+        if (LIBRARIES.includes(url.href)) event.respondWith(cacheFirst(request, event));
         return;
     }
 
-    // 2) Code and pages (HTML / CSS / JS): network-first so updates show up
+    // 1) API calls and health checks: straight to the network, never saved.
+    if (API_PREFIXES.some(p => url.pathname === p || url.pathname.startsWith(p + "/"))) {
+        return;
+    }
+
+    // 2) The page: network-first so updates show up; the saved shell offline.
     const isPage = request.mode === "navigate" ||
         (request.headers.get("accept") || "").includes("text/html");
-    const isCode = /\.(css|js)$/i.test(url.pathname) || url.pathname === "/" || isPage;
-    if (isCode) {
+    if (isPage || url.pathname === "/") {
         event.respondWith(networkFirst(request, async () => {
-            if (isPage) {
-                const shell = await fromCache("/");
-                return shell || offlineHtml();
-            }
-            return new Response("", { status: 503 });
+            const shell = await fromCache("/");
+            return shell || offlineHtml();
         }, PAGE_WAIT_MS));
         return;
     }
 
-    // 3) Static assets (images, icons, fonts): cache-first
-    event.respondWith((async () => {
-        const cached = await fromCache(request);
-        if (cached) return cached;
-        try {
-            const response = await fetch(request);
-            remember(request, response);
-            return response;
-        } catch (e) {
-            return new Response("", { status: 503 });
-        }
-    })());
+    // 3) Scripts, styles, icons, manifest: cache-first.
+    event.respondWith(cacheFirst(request, event));
 });

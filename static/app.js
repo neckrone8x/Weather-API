@@ -7,6 +7,9 @@ function storageGet(key) {
 function storageSet(key, value) {
     try { localStorage.setItem(key, value); return true; } catch { return false; }
 }
+function storageRemove(key) {
+    try { localStorage.removeItem(key); } catch { /* blocked */ }
+}
 function storageJson(key, fallback) {
     try {
         const v = JSON.parse(storageGet(key) || "null");
@@ -234,6 +237,12 @@ const I18N = {
     status_failed:     { en: "Couldn't load the weather right now.", sw: "Imeshindikana kupakia hali ya hewa kwa sasa." },
     status_saved:      { en: "Showing saved data from {time}", sw: "Inaonyesha data iliyohifadhiwa ya {time}" },
     status_updating:   { en: " · updating…", sw: " · inasasisha…" },
+    saved_ago:         { en: "Saved {ago}", sw: "Imehifadhiwa {ago}" },
+    rel_min_1:         { en: "1 minute ago", sw: "dakika 1 iliyopita" },
+    rel_min:           { en: "{n} minutes ago", sw: "dakika {n} zilizopita" },
+    rel_h_1:           { en: "1 hour ago", sw: "saa 1 iliyopita" },
+    rel_h:             { en: "{n} hours ago", sw: "saa {n} zilizopita" },
+    old_data:          { en: "Old data, may be wrong", sw: "Data ya zamani, huenda si sahihi" },
     earlier:           { en: "earlier", sw: "awali" },
     retry:             { en: "Retry", sw: "Jaribu tena" },
     retrying:          { en: "Retrying…", sw: "Inajaribu tena…" },
@@ -772,6 +781,19 @@ function formatSavedTime(ms) {
 }
 
 let lastDataStatus = null;   // the bar's arguments, to redraw it in another language
+const OLD_DATA_MS = 24 * 60 * 60 * 1000;   // saved longer ago than this: "may be wrong"
+let pendingOnlineRetry = null;             // the Retry of the saved data on screen
+
+/* "2 hours ago" (words, for the saved-data bar). */
+function savedAgo(ms, now = Date.now()) {
+    const mins = Math.floor((now - Number(ms)) / 60000);
+    if (!Number.isFinite(mins) || mins < 1) return t("ago_now");
+    if (mins < 60) return mins === 1 ? t("rel_min_1") : t("rel_min", { n: mins });
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 48) return hrs === 1 ? t("rel_h_1") : t("rel_h", { n: hrs });
+    const days = Math.floor(hrs / 24);
+    return days === 1 ? t("ago_day_1") : t("ago_days", { n: days });
+}
 
 function getDataStatusElement() {
     let el = getElement("data-status");
@@ -795,14 +817,30 @@ function showDataStatus(savedTime, onRetry, { updating = false } = {}) {
     lastDataStatus = [savedTime, onRetry, { updating }];
     el.textContent = "";
 
+    const known = savedTime !== null && Number.isFinite(savedTime) && savedTime > 0;
+    const old = known && Date.now() - savedTime > OLD_DATA_MS;
+    if (el.classList) el.classList.toggle("data-status-old", old);
+
     const text = document.createElement("span");
     if (savedTime === null) {
         text.textContent = t("status_failed");
     } else {
         text.textContent = t("status_saved", { time: formatSavedTime(savedTime) }) +
+            (known ? " · " + t("saved_ago", { ago: savedAgo(savedTime) }) : "") +
             (updating ? t("status_updating") : "");
     }
     el.appendChild(text);
+
+    if (old) {
+        const warn = document.createElement("strong");
+        warn.className = "data-status-warning";
+        warn.textContent = "⚠️ " + t("old_data");
+        el.appendChild(warn);
+    }
+
+    // Saved data on screen: a live load is tried again when the connection
+    // comes back (once per "online" event, never on a timer).
+    pendingOnlineRetry = onRetry || null;
 
     if (onRetry && !updating) {
         const btn = document.createElement("button");
@@ -812,6 +850,7 @@ function showDataStatus(savedTime, onRetry, { updating = false } = {}) {
         btn.addEventListener("click", () => {
             btn.disabled = true;
             btn.textContent = t("retrying");
+            pendingOnlineRetry = null;
             onRetry();
         });
         el.appendChild(btn);
@@ -819,9 +858,18 @@ function showDataStatus(savedTime, onRetry, { updating = false } = {}) {
     el.hidden = false;
 }
 
+/* Back online: one live load of what is on screen (Retry does the same). */
+function onBackOnline() {
+    const retry = pendingOnlineRetry;
+    pendingOnlineRetry = null;
+    if (typeof retry === "function") retry();
+}
+window.addEventListener("online", onBackOnline);
+
 function clearDataStatus() {
     const el = getElement("data-status");
     lastDataStatus = null;
+    pendingOnlineRetry = null;
     if (el) {
         el.hidden = true;
         el.textContent = "";
@@ -830,37 +878,97 @@ function clearDataStatus() {
 
 
 /* =========================================================
-   LOCAL CACHE — instant load on next visit
+   SAVED FORECASTS — the last live weather of up to 8 places, on the phone
+   One list in localStorage, newest first:
+     { key: "lat,lon" (2 decimals), lat, lon, name, state, country,
+       search (English "City, Country", lower case), weather, forecast, time }
+   - saved after every live load (never a reply that is itself saved data)
+   - shown when a live load fails, with the "saved data" bar + Retry
+   - storage full: drop the oldest place and try once more, then give up
+   (Shown however old, with a note: age is no reason to hide it.)
 ========================================================= */
+const SAVED_PLACES_KEY = "neckrone8x_saved_forecasts";
+const SAVED_PLACES_MAX = 8;
+// Before W-7b2 one copy (any place) was kept under these two keys.
 const WEATHER_CACHE_KEY = "neckrone8x_weather_cache";
 const FORECAST_CACHE_KEY = "neckrone8x_forecast_cache";
 
-function saveWeatherToCache(weatherData, forecastData) {
-    try {
-        if (weatherData) {
-            storageSet(WEATHER_CACHE_KEY, JSON.stringify({
-                data: weatherData,
-                time: Date.now()
-            }));
-        }
-        if (forecastData) {
-            storageSet(FORECAST_CACHE_KEY, JSON.stringify({
-                data: forecastData,
-                time: Date.now()
-            }));
-        }
-    } catch (e) {
-        console.warn("Cache save failed:", e);
-    }
+function placeKey(lat, lon) {
+    const a = Number(lat), b = Number(lon);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return "";
+    return `${a.toFixed(2)},${b.toFixed(2)}`;
 }
 
-/* The last saved copy, however old: { data, time } or null.
-   (Shown with a "saved data from <time>" note, so age is no reason to hide it.) */
-function loadCacheEntry(key) {
+function readSavedPlaces() {
+    const list = storageJson(SAVED_PLACES_KEY, []);
+    if (!Array.isArray(list)) return [];
+    return list.filter(p => p && typeof p.key === "string" && p.weather && p.forecast &&
+                            Number.isFinite(p.time));
+}
+
+function writeSavedPlaces(list) {
+    if (storageSet(SAVED_PLACES_KEY, JSON.stringify(list))) return true;
+    // Full (or blocked): drop the oldest place and try once more.
+    if (list.length > 1 && storageSet(SAVED_PLACES_KEY, JSON.stringify(list.slice(0, -1)))) return true;
+    return false;
+}
+
+/* Save a live weather + forecast pair for its place. Quietly does nothing
+   when storage is full or blocked. Returns true when it was saved. */
+function savePlaceForecast(weather, forecast, now = Date.now()) {
+    const coord = weather && weather.coord;
+    const key = placeKey(coord && coord.lat, coord && coord.lon);
+    if (!key || !forecast) return false;
+    const loc = weather.searched_location || {};
+    const name = loc.name || weather.name || "";
+    const state = loc.state || "";
+    const country = loc.country || (weather.sys && weather.sys.country) || "";
+    const entry = {
+        key, lat: Number(coord.lat), lon: Number(coord.lon), name, state, country,
+        search: inEnglish(() => formatLocation(name, state, country)).toLowerCase(),
+        weather, forecast, time: now
+    };
+    // The old single copy is replaced by this list: free its space first.
+    storageRemove(WEATHER_CACHE_KEY);
+    storageRemove(FORECAST_CACHE_KEY);
+    const list = [entry, ...readSavedPlaces().filter(p => p.key !== key)].slice(0, SAVED_PLACES_MAX);
     try {
-        const entry = JSON.parse(storageGet(key) || "null");
-        return entry && entry.data ? entry : null;
-    } catch { return null; }
+        return writeSavedPlaces(list);
+    } catch { return false; }
+}
+
+/* The saved copy for a place: by coordinates, else by the searched text. */
+function findSavedPlace({ coords = null, search = "" } = {}) {
+    const list = readSavedPlaces();
+    if (coords) {
+        const key = placeKey(coords.lat, coords.lon);
+        const hit = key && list.find(p => p.key === key);
+        if (hit) return hit;
+    }
+    const q = String(search || "").trim().toLowerCase();
+    if (q) {
+        return list.find(p => p.search === q) ||
+               list.find(p => String(p.name || "").toLowerCase() === q) ||
+               list.find(p => p.search && p.search.startsWith(q + ",")) || null;
+    }
+    return null;
+}
+
+/* The place viewed last (newest saved), or the pre-W-7b2 single copy. */
+function latestSavedPlace() {
+    const list = readSavedPlaces();
+    if (list.length) return list[0];
+    const w = storageJson(WEATHER_CACHE_KEY, null);
+    const f = storageJson(FORECAST_CACHE_KEY, null);
+    if (w && w.data && f && f.data) return { weather: w.data, forecast: f.data, time: Number(w.time) || 0 };
+    return null;
+}
+
+/* Put a saved copy on screen with the "saved data" bar and Retry. */
+function showSavedPlace(entry, retry) {
+    showWeatherPair(entry.weather, entry.forecast, { saved: true });
+    window._dataTime = entry.time;
+    showDataStatus(entry.time, retry);
 }
 
 function setControlsVisibility(visible) {
@@ -3215,23 +3323,23 @@ function setLoadingUi(message) {
     window._currentWeatherData = null;
 }
 
-function showSavedWeatherFallback(retry, failMessage) {
+/* place: { coords, search } of the load that failed, to find its saved copy. */
+function showSavedWeatherFallback(retry, failMessage, place = null) {
     // Still showing weather (a refresh failed): keep it on screen.
     if (window._currentWeatherData) {
         showDataStatus(window._dataTime, retry);
         return;
     }
+    // This place was saved before: show its last forecast at once.
+    const own = place ? findSavedPlace(place) : null;
+    if (own) {
+        showSavedPlace(own, retry);
+        return;
+    }
     // Screen was cleared for a new place: bring back the last saved weather.
-    const w = loadCacheEntry(WEATHER_CACHE_KEY);
-    const f = loadCacheEntry(FORECAST_CACHE_KEY);
-    if (w) {
-        displayWeather(w.data, { saved: true });
-        if (f) {
-            renderHourlyForecast(f.data);
-            renderForecast(f.data);
-        }
-        window._dataTime = w.time;
-        showDataStatus(w.time, retry);
+    const last = latestSavedPlace();
+    if (last) {
+        showSavedPlace(last, retry);
         const errorMessage = getElement("error-message");
         if (errorMessage) errorMessage.textContent = failMessage;
         return;
@@ -3255,7 +3363,7 @@ function showSavedWeatherFallback(retry, failMessage) {
 /* url: the /weather-full URL.  retry: re-runs this same load.
    adjust(weather, forecast): optional, may return a promise.
    keepCurrent: leave the weather on screen while loading. */
-function loadWeatherFull(url, { retry, adjust, keepCurrent = false, coords = null,
+function loadWeatherFull(url, { retry, adjust, keepCurrent = false, coords = null, search = "",
                                 loadingMessage = t("loading_weather"),
                                 failMessage = t("load_failed") } = {}) {
     const seq = ++weatherLoadSeq;
@@ -3294,7 +3402,7 @@ function loadWeatherFull(url, { retry, adjust, keepCurrent = false, coords = nul
             }
 
             showWeatherPair(payload.weather, payload.forecast);
-            saveWeatherToCache(payload.weather, payload.forecast);
+            savePlaceForecast(payload.weather, payload.forecast);
             window._dataTime = Date.now();
             clearDataStatus();
             return true;
@@ -3308,7 +3416,10 @@ function loadWeatherFull(url, { retry, adjust, keepCurrent = false, coords = nul
             const status = error && error.status;
             const message = status === 429 ? t("rate_limited")
                 : status === 503 ? t("weather_unavailable") : failMessage;
-            showSavedWeatherFallback(retry, message);
+            // No live data (offline, timeout, 5xx, or 429): this place's saved
+            // forecast. A 4xx such as "city not found" is an answer, not an outage.
+            const outage = !status || status >= 500 || status === 429;
+            showSavedWeatherFallback(retry, message, outage ? { coords, search } : null);
             // With weather still on screen the bar only says "saved data";
             // a 429 also says why, so the user knows to wait before Retry.
             if (status === 429 && errorMessage) errorMessage.textContent = t("rate_limited");
@@ -3323,6 +3434,7 @@ function getWeather(city, opts = {}) {
 
     return loadWeatherFull(`/weather-full?city=${encodeURIComponent(city)}`, {
         keepCurrent: !!opts.keepCurrent,
+        search: city,
         retry: () => getWeather(city, { keepCurrent: true })
     });
 }
@@ -4544,19 +4656,15 @@ window.WeatherHelpers = {
 async function loadDefaultWeather() {
     const input = getElement("city-input");
 
-    // Show the last saved weather at once (however old, with a note), then
-    // update it in place: the loads below keep it on screen if they fail.
-    const savedEntry = loadCacheEntry(WEATHER_CACHE_KEY);
-    const cachedWeather = savedEntry ? savedEntry.data : null;
-    const forecastEntry = loadCacheEntry(FORECAST_CACHE_KEY);
-    const cachedForecast = forecastEntry ? forecastEntry.data : null;
+    // Show the saved forecast of the place viewed last at once (however old,
+    // with a note; this is what an offline start shows), then update it in
+    // place: the loads below keep it on screen if they fail.
+    const lastCoords = storageJson("weatherLastCoords", null);
+    const savedEntry = (lastCoords && findSavedPlace({ coords: lastCoords })) || latestSavedPlace();
+    const cachedWeather = savedEntry ? savedEntry.weather : null;
 
     if (cachedWeather) {
-        displayWeather(cachedWeather, { saved: true });
-        if (cachedForecast) {
-            renderHourlyForecast(cachedForecast);
-            renderForecast(cachedForecast);
-        }
+        showWeatherPair(cachedWeather, savedEntry.forecast, { saved: true });
         window._dataTime = savedEntry.time;
         showDataStatus(savedEntry.time, null, { updating: true });
 

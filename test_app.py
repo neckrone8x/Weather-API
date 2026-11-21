@@ -1112,6 +1112,44 @@ class CleanupTests(unittest.TestCase):
             self.assertNotIn("${" + var + "}", html)
 
 
+class OfflineTests(unittest.TestCase):
+    """W-7b2: the page opens with no network; saved forecasts live in the page."""
+    ROOT = CleanupTests.ROOT
+    read = CleanupTests.read
+
+    def test_service_worker_version_was_bumped(self):
+        import re
+        sw = self.read("static", "service-worker.js")
+        found = re.search(r'const CACHE_NAME = "neckrone8x-weather-v(\d+)";', sw)
+        self.assertIsNotNone(found)
+        self.assertGreaterEqual(int(found.group(1)), 32, "bump CACHE_NAME so phones update")
+
+    def test_shell_lists_every_local_script_and_style_of_the_page(self):
+        import re
+        sw = self.read("static", "service-worker.js")
+        html = self.read("templates", "weather.html")
+        shell = set(re.findall(r'"(/[^"]*)"', sw.split("const APP_SHELL")[1].split("];")[0]))
+        used = set(re.findall(r'(?:src|href)="(/static/[^"]+\.(?:js|css)(?:\?[^"]*)?)"', html))
+        self.assertTrue(used, "no scripts found in the template")
+        self.assertEqual(used - shell, set(), "page files the service worker won't save for offline")
+        self.assertIn("/", shell)
+
+    def test_service_worker_leaves_api_replies_alone(self):
+        sw = self.read("static", "service-worker.js")
+        self.assertNotIn("offlineJson", sw)
+        self.assertNotIn("API_WAIT_MS", sw)
+        for path in weather_app.API_PATHS:
+            self.assertIn(f'"{path}"', sw.split("const API_PREFIXES")[1].split("];")[0],
+                          f"{path} is not on the service worker's hands-off list")
+
+    def test_page_keeps_saved_forecasts_per_place(self):
+        js = self.read("static", "app.js")
+        self.assertIn("const SAVED_PLACES_MAX = 8;", js)
+        self.assertIn('window.addEventListener("online", onBackOnline);', js)
+        for key in ("saved_ago", "old_data", "rel_h", "rel_min"):
+            self.assertRegex(js, rf'\n    {key}: +\{{ en: "[^"]+", sw: "[^"]+" \}},')
+
+
 class LanguageTests(unittest.TestCase):
     """W-7b1: ?lang=sw gives Kiswahili, anything else English, never mixed."""
 

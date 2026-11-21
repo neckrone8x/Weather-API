@@ -423,6 +423,19 @@ body.night-theme {
     cursor: default;
 }
 
+/* Saved more than 24 hours ago: a stronger, amber note */
+.data-status.data-status-old {
+    border-radius: 14px;
+    background: rgba(120, 53, 15, 0.85);
+    border: 1px solid #f59e0b;
+    color: #fef3c7;
+}
+
+.data-status-warning {
+    color: #fbbf24;
+    font-weight: 700;
+}
+
 /* =========================================================
    WEATHER CONTENT
 ========================================================= */
