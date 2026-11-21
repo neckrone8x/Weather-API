@@ -56,7 +56,9 @@ OPEN_METEO = {
     "daily": {"time": ["2025-11-13", "2025-11-14"], "weather_code": [61, 0],
               "temperature_2m_max": [28.1, 29], "temperature_2m_min": [16, 17],
               "precipitation_probability_max": [80, 5], "precipitation_sum": [6.2, 0],
-              "uv_index_max": [9.5, 10]},
+              "uv_index_max": [9.5, 10],
+              "sunrise": ["2025-11-13T06:32", "2025-11-14T06:33"],
+              "sunset": ["2025-11-13T18:41", "2025-11-14T18:42"]},
 }
 
 
@@ -858,6 +860,69 @@ class WatchdogTests(unittest.TestCase):
         with mock.patch.object(weather_app.http, "get", side_effect=router):
             weather_app.app.test_client().get("/health")
         self.assertNotIn(threading.get_ident(), weather_app._inflight)
+
+
+class DailyDetailsTests(unittest.TestCase):
+    """Per-day sunrise, sunset and max UV in the daily outlook (5-day view)."""
+
+    def setUp(self):
+        weather_app.cache.clear()
+        weather_app.rate_limiter.reset()
+        self.client = weather_app.app.test_client()
+        self.om = json.loads(json.dumps(OPEN_METEO))
+        self.calls = []
+
+        def handler(url, params=None, **kw):
+            if "open-meteo" in url:
+                self.calls.append(params)
+                return FakeResp(200, self.om)
+            return router(url, params, **kw)
+        patcher = mock.patch.object(weather_app.http, "get", side_effect=handler)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def daily(self, path="/weather-full?lat=-0.1&lon=34.75"):
+        r = self.client.get(path)
+        self.assertEqual(r.status_code, 200)
+        return r.get_json()["forecast"]["daily"]
+
+    def test_open_meteo_is_asked_for_sunrise_sunset_and_uv(self):
+        self.daily()
+        fields = self.calls[0]["daily"].split(",")
+        for f in ("sunrise", "sunset", "uv_index_max"):
+            self.assertIn(f, fields)
+        self.assertEqual(self.calls[0]["timezone"], "auto")      # the place's own clock
+
+    def test_each_day_has_local_sunrise_sunset_and_uv(self):
+        days = self.daily()
+        self.assertEqual([(d["date"], d["sunrise"], d["sunset"], d["uv_max"]) for d in days],
+                         [("2025-11-13", "06:32", "18:41", 9.5),
+                          ("2025-11-14", "06:33", "18:42", 10)])
+
+    def test_missing_or_null_values_come_back_as_null(self):
+        self.om["daily"]["uv_index_max"] = [None]                 # shorter list + a null
+        self.om["daily"]["sunrise"] = ["junk", "2025-11-14T06:33"]
+        del self.om["daily"]["sunset"]
+        days = self.daily()
+        self.assertEqual([d["uv_max"] for d in days], [None, None])
+        self.assertEqual([d["sunrise"] for d in days], [None, "06:33"])
+        self.assertEqual([d["sunset"] for d in days], [None, None])
+
+    def test_cached_like_the_rest(self):
+        self.daily()
+        again = self.daily("/weather-full?lat=-0.1001&lon=34.7502")   # same ~1 km cell
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(again[0]["sunrise"], "06:32")
+        key = "om:" + weather_app.coord_key(-0.1, 34.75)
+        self.assertEqual(weather_app.cache.get(key)["daily"][0]["sunset"], "18:41")
+        self.assertIsNotNone(weather_app.cache.get("stale:" + key))
+
+    def test_local_hhmm(self):
+        f = weather_app._local_hhmm
+        self.assertEqual(f("2025-11-13T06:32"), "06:32")
+        self.assertEqual(f("2025-11-13T18:41:00"), "18:41")
+        for bad in (None, "", "06:32", "2025-11-13 06:32", "2025-11-13Tab:cd", 1731470000):
+            self.assertIsNone(f(bad), bad)
 
 
 class ClientIpTests(unittest.TestCase):

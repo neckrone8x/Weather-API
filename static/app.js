@@ -830,15 +830,227 @@ async function checkLocationAlerts(lat, lon) {
 
 
 /* =========================================================
-   ANIMATED WEATHER CANVAS (real rain / snow particles)
+   ANIMATED WEATHER CANVAS
+   pickWeatherEffect() turns the real data (condition id, rain/snow mm per
+   hour, wind, day/night) into an effect; effectParticleCount() decides how
+   many particles this screen and phone can afford. Both are pure (no DOM),
+   so they are easy to test; the drawing below only follows what they say.
+   Hidden test switch: open the page with ?fx=<kind> (see WEATHER_FX_KINDS),
+   e.g. ?fx=rain-heavy or ?fx=clear-night. No visible UI.
 ========================================================= */
+const WEATHER_FX_KINDS = [
+    "drizzle", "rain-light", "rain", "rain-heavy", "freezing-rain", "thunder",
+    "snow-light", "snow", "snow-heavy", "sleet", "fog", "dust", "squall",
+    "clear-day", "clear-night", "clouds", "clouds-night", "none"
+];
+// Intensity bands, mm per hour (OpenWeatherMap rain["1h"] / snow["1h"]).
+const RAIN_MM_MODERATE = 2.5;
+const RAIN_MM_HEAVY = 7.6;
+const SNOW_MM_MODERATE = 1;
+const SNOW_MM_HEAVY = 3;
+// Particles for a 400 x 300 px weather card on a normal phone.
+const FX_BASE_PARTICLES = {
+    "drizzle": 35, "rain-light": 55, "rain": 95, "rain-heavy": 160,
+    "freezing-rain": 90, "thunder": 170, "snow-light": 35, "snow": 60,
+    "snow-heavy": 110, "sleet": 80, "squall": 90, "dust": 25
+};
+const FX_REFERENCE_AREA = 400 * 300;
+const FX_MIN_PARTICLES = 6;
+const FX_MAX_PARTICLES = 220;          // hard cap, whatever the screen or phone
+const FX_LOW_BATTERY = 0.2;            // not charging and at or below 20%: fewer particles
+const FX_CALM_FRAME_MS = 33;           // fog, haze, clouds, sun, stars: ~30 fps is plenty
+const RAIN_LEVELS = ["rain-light", "rain", "rain-heavy"];
+const SNOW_LEVELS = ["snow-light", "snow", "snow-heavy"];
+
+function fxNumber(v) {
+    if (v === null || v === undefined || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+}
+
+function fxClamp(v, lo, hi) {
+    return Math.min(hi, Math.max(lo, v));
+}
+
+/* input: { id, rainMm, snowMm, windSpeed (m/s), windDeg (where it blows FROM),
+            night, clouds (%) }
+   -> { kind, night, windX (m/s across the screen, + = to the right),
+        windSpeed, clouds } */
+function pickWeatherEffect(input = {}) {
+    const id = Number(input.id) || 0;
+    const rainMm = fxNumber(input.rainMm);
+    const snowMm = fxNumber(input.snowMm);
+    const windSpeed = Math.max(0, fxNumber(input.windSpeed) ?? 0);
+    const windDeg = fxNumber(input.windDeg);
+    // Wind from the west (270°) pushes rain to the right.
+    const windX = windDeg === null ? 0
+        : Math.round(-Math.sin(windDeg * Math.PI / 180) * windSpeed * 100) / 100;
+    const clouds = fxClamp(fxNumber(input.clouds) ?? 0, 0, 100);
+    const night = !!input.night;
+
+    const rainLevelFromMm = rainMm === null ? -1
+        : rainMm >= RAIN_MM_HEAVY ? 2 : rainMm >= RAIN_MM_MODERATE ? 1 : 0;
+    const snowLevelFromMm = snowMm === null ? -1
+        : snowMm >= SNOW_MM_HEAVY ? 2 : snowMm >= SNOW_MM_MODERATE ? 1 : 0;
+
+    let kind;
+    if (id >= 200 && id <= 232) kind = "thunder";
+    else if (id >= 300 && id <= 321) kind = "drizzle";
+    else if (id === 511) kind = "freezing-rain";
+    else if (id >= 500 && id <= 531) {
+        const fromId = (id === 500 || id === 520) ? 0 : id === 501 ? 1 : 2;
+        kind = RAIN_LEVELS[Math.max(fromId, rainLevelFromMm)];   // mm/h can only make it stronger
+    }
+    else if (id >= 611 && id <= 616) kind = "sleet";
+    else if (id >= 600 && id <= 622) {
+        const fromId = (id === 600 || id === 620) ? 0 : (id === 602 || id === 622) ? 2 : 1;
+        kind = SNOW_LEVELS[Math.max(fromId, snowLevelFromMm)];
+    }
+    else if (id === 701 || id === 721 || id === 741) kind = "fog";
+    else if ([711, 731, 751, 761, 762].includes(id)) kind = "dust";
+    else if (id === 771 || id === 781) kind = "squall";
+    else if (id === 800 || (id === 801 && clouds < 30)) kind = night ? "clear-night" : "clear-day";
+    else if (id >= 801 && id <= 804) kind = "clouds";
+    else kind = "none";
+
+    return { kind, night, windX, windSpeed, clouds: kind === "clouds" ? Math.max(clouds, 20) : clouds };
+}
+
+/* How many particles to draw. env: { width, height, cores, memoryGb,
+   lowPower, reducedMotion }. 0 for effects without particles. */
+function effectParticleCount(kind, env = {}) {
+    const base = FX_BASE_PARTICLES[kind] || 0;
+    if (!base) return 0;
+    const area = Math.max(0, Number(env.width) || 0) * Math.max(0, Number(env.height) || 0);
+    const sizeScale = fxClamp(area / FX_REFERENCE_AREA, 0.5, 2);
+    const cores = Number(env.cores) || 0;          // 0 = unknown: assume a normal phone
+    const memory = Number(env.memoryGb) || 0;
+    let device = 1;
+    if ((cores && cores <= 2) || (memory && memory <= 1)) device = 0.5;
+    else if ((cores && cores <= 4) || (memory && memory <= 2)) device = 0.75;
+    if (env.lowPower) device *= 0.5;
+    if (env.reducedMotion) device *= 0.5;
+    return fxClamp(Math.round(base * sizeScale * device), FX_MIN_PARTICLES, FX_MAX_PARTICLES);
+}
+
+/* The effect the hidden ?fx= switch asks for, or null. */
+function forcedWeatherEffect(search, real) {
+    let fx = "";
+    try { fx = String(new URLSearchParams(search || "").get("fx") || "").toLowerCase(); } catch { fx = ""; }
+    if (!WEATHER_FX_KINDS.includes(fx)) return null;
+    const base = real || pickWeatherEffect({});
+    const night = fx.endsWith("-night");
+    const kind = fx === "clouds-night" ? "clouds" : fx;
+    return { ...base, kind, night, clouds: kind === "clouds" ? 70 : base.clouds,
+             windX: base.windX || 3, windSpeed: base.windSpeed || 3 };
+}
+
+/* What pickWeatherEffect needs, from a /weather reply. */
+function weatherEffectInput(data) {
+    const w = (data && data.weather && data.weather[0]) || {};
+    const per = (o) => {
+        if (!o) return null;
+        const h1 = fxNumber(o["1h"]);
+        if (h1 !== null) return h1;
+        const h3 = fxNumber(o["3h"]);
+        return h3 === null ? null : h3 / 3;
+    };
+    let night = String(w.icon || "").endsWith("n");
+    if (!w.icon && data && data.sys && data.sys.sunrise && data.sys.sunset) {
+        const now = Date.now() / 1000;
+        night = now < data.sys.sunrise || now >= data.sys.sunset;
+    }
+    return {
+        id: w.id, rainMm: per(data && data.rain), snowMm: per(data && data.snow),
+        windSpeed: data && data.wind && data.wind.speed, windDeg: data && data.wind && data.wind.deg,
+        clouds: data && data.clouds && data.clouds.all, night
+    };
+}
+
+/* Particle look and motion per effect. speed = px per 60 fps frame. */
+const FX_STYLES = {
+    "drizzle":       { drop: "rain", len: [4, 7], speed: [2.6, 3.6], width: 0.8, alpha: 0.55, color: "#cfe8fb" },
+    "rain-light":    { drop: "rain", len: [7, 11], speed: [4, 5.5], width: 1.1, alpha: 0.75, color: "#bae6fd" },
+    "rain":          { drop: "rain", len: [9, 15], speed: [5, 7.5], width: 1.3, alpha: 0.85, color: "#bae6fd" },
+    "rain-heavy":    { drop: "rain", len: [13, 24], speed: [7, 10.5], width: 1.5, alpha: 0.9, color: "#bfdbfe" },
+    "thunder":       { drop: "rain", len: [13, 24], speed: [7, 10.5], width: 1.5, alpha: 0.9, color: "#c7d2fe" },
+    "freezing-rain": { drop: "rain", len: [5, 9], speed: [5, 7], width: 1.3, alpha: 0.9, color: "#f0f9ff" },
+    "squall":        { drop: "streak", len: [28, 55], speed: [9, 14], width: 1, alpha: 0.5, color: "#e2e8f0" },
+    "snow-light":    { drop: "snow", r: [1.2, 2.4], speed: [0.5, 1.1], alpha: 0.85, color: "#ffffff" },
+    "snow":          { drop: "snow", r: [1.5, 3], speed: [0.7, 1.4], alpha: 0.9, color: "#ffffff" },
+    "snow-heavy":    { drop: "snow", r: [1.8, 3.8], speed: [0.9, 1.8], alpha: 0.95, color: "#ffffff" },
+    "sleet":         { drop: "sleet", len: [6, 10], r: [1.3, 2.4], speed: [3, 5], width: 1.1, alpha: 0.85, color: "#e0f2fe" },
+    "dust":          { drop: "speck", r: [0.7, 1.5], speed: [0.15, 0.4], alpha: 0.6, color: "#d6b98c" }
+};
+const FX_LAYERS = [                    // far, middle, near: depth without extra cost
+    { alpha: 0.45, width: 0.7, speed: 0.7 },
+    { alpha: 0.7, width: 1, speed: 1 },
+    { alpha: 1, width: 1.3, speed: 1.25 }
+];
+const FX_HERO_CLASS = {
+    "thunder": "weather-thunder", "drizzle": "weather-rain", "rain-light": "weather-rain",
+    "rain": "weather-rain", "rain-heavy": "weather-rain", "freezing-rain": "weather-rain",
+    "squall": "weather-rain", "snow-light": "weather-snow", "snow": "weather-snow",
+    "snow-heavy": "weather-snow", "sleet": "weather-snow", "fog": "weather-fog",
+    "dust": "weather-dust", "clear-day": "weather-sunny", "clear-night": "weather-sunny",
+    "clouds": "weather-cloudy", "none": "weather-cloudy"
+};
+
 let weatherCanvas = null;
 let weatherCtx = null;
 let weatherParticles = [];
 let weatherAnimFrame = null;
-let weatherParticleType = null;
+let weatherParticleType = null;        // the running effect's kind (null = nothing drawn)
+let weatherEffect = null;              // the running effect
+let weatherFxGen = 0;                  // bumps on every start/stop, so an old loop stops itself
+let weatherFxLastT = 0;
+let weatherFxLastDraw = 0;
+let fxLowPower = false;
+
+function fxRandom(range) {
+    return range[0] + Math.random() * (range[1] - range[0]);
+}
+
+function fxReducedMotion() {
+    try {
+        return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    } catch { return false; }
+}
+
+function fxEnvironment(width, height) {
+    let cores = 0, memoryGb = 0;
+    try { cores = Number(navigator.hardwareConcurrency) || 0; } catch {}
+    try { memoryGb = Number(navigator.deviceMemory) || 0; } catch {}
+    return { width, height, cores, memoryGb, lowPower: fxLowPower, reducedMotion: fxReducedMotion() };
+}
+
+/* Battery saver isn't exposed to pages; "low and not charging" (or Data
+   Saver) is the closest sign. Checked once, then on battery changes. */
+function watchPowerState() {
+    try {
+        if (navigator.connection && navigator.connection.saveData) fxLowPower = true;
+    } catch {}
+    try {
+        if (typeof navigator.getBattery !== "function") return;
+        navigator.getBattery().then(battery => {
+            const update = () => {
+                const low = !battery.charging && battery.level <= FX_LOW_BATTERY;
+                const saveData = !!(navigator.connection && navigator.connection.saveData);
+                const next = low || saveData;
+                if (next !== fxLowPower) {
+                    fxLowPower = next;
+                    if (weatherEffect) startWeatherCanvas(weatherEffect);   // rebuild with the new count
+                }
+            };
+            update();
+            battery.addEventListener("levelchange", update);
+            battery.addEventListener("chargingchange", update);
+        }).catch(() => {});
+    } catch {}
+}
 
 function stopWeatherCanvas() {
+    weatherFxGen++;
     if (weatherAnimFrame) {
         cancelAnimationFrame(weatherAnimFrame);
         weatherAnimFrame = null;
@@ -848,123 +1060,246 @@ function stopWeatherCanvas() {
     }
     weatherParticles = [];
     weatherParticleType = null;
+    weatherEffect = null;
 }
 
-function startWeatherCanvas(type) {
+function makeParticle(style, effect, w, h, anywhere) {
+    const layer = Math.floor(Math.random() * FX_LAYERS.length);
+    const L = FX_LAYERS[layer];
+    const drop = style.drop === "sleet" ? (Math.random() < 0.5 ? "rain" : "snow") : style.drop;
+    const p = {
+        layer, drop,
+        x: Math.random() * w,
+        y: anywhere ? Math.random() * h : -20 - Math.random() * 30,
+        vy: fxRandom(style.speed) * L.speed * (1 + Math.min(effect.windSpeed, 20) / 40),
+        len: style.len ? fxRandom(style.len) * (drop === "snow" ? 0 : 1) : 0,
+        r: style.r ? fxRandom(style.r) * (0.7 + layer * 0.2) : 0,
+        wobble: Math.random() * Math.PI * 2,
+        wobbleSpeed: 0.02 + Math.random() * 0.03
+    };
+    if (drop === "snow") p.vy *= 0.6;                     // sleet flakes fall slower than its drops
+    return p;
+}
+
+/* Sideways movement per px of fall, from the wind across the screen. */
+function fxSlant(effect, drop) {
+    const wx = effect.windX;
+    if (drop === "streak") {
+        const dir = wx < 0 ? -1 : 1;
+        return dir * fxClamp(0.9 + Math.abs(wx) / 15, 0.9, 2);
+    }
+    if (drop === "rain") return wx === 0 ? 0.08 : fxClamp(wx / 10, -0.7, 0.7);
+    return 0;   // snow / specks drift instead (see fxDrift)
+}
+
+function fxDrift(effect, drop) {
+    if (drop === "snow") return fxClamp(effect.windX * 0.25, -3, 3);
+    if (drop === "speck") return fxClamp(effect.windX * 0.35, -4, 4) || 0.3;
+    return 0;
+}
+
+function startWeatherCanvas(effect) {
+    stopWeatherCanvas();
+    if (!effect || effect.kind === "none") return;
     weatherCanvas = document.getElementById("weather-canvas");
-    if (!weatherCanvas) return;
+    if (!weatherCanvas || !weatherCanvas.parentElement) return;
 
-    const parent = weatherCanvas.parentElement;
-    const rect = parent.getBoundingClientRect();
-
-    weatherCanvas.width = rect.width;
-    weatherCanvas.height = rect.height;
-
+    const rect = weatherCanvas.parentElement.getBoundingClientRect();
+    weatherCanvas.width = Math.round(rect.width);
+    weatherCanvas.height = Math.round(rect.height);
     weatherCtx = weatherCanvas.getContext("2d");
-    weatherParticleType = type;
+    if (!weatherCtx) return;
 
+    const gen = weatherFxGen;
+    weatherEffect = effect;
+    weatherParticleType = effect.kind;
+    const w = weatherCanvas.width, h = weatherCanvas.height;
+    const env = fxEnvironment(w, h);
+    const style = FX_STYLES[effect.kind];
+    const count = effectParticleCount(effect.kind, env);
     weatherParticles = [];
-    
-    const isRain = type === "rain" || type === "rain-heavy";
-    const isStars = type === "stars";
-    const isFog = type === "fog";
+    for (let i = 0; i < count && style; i++) weatherParticles.push(makeParticle(style, effect, w, h, true));
 
-    const _wData = window._currentWeatherData;
-    const _wId = Number(_wData?.weather?.[0]?.id || 0);
-    const isThunder = type === "rain-heavy" && _wId >= 200 && _wId <= 232;
+    _lightning.nextStrike = 0;           // first flash a few seconds after the storm appears
+    _lightning.active = false;
+    weatherFxLastT = 0;
+    weatherFxLastDraw = 0;
 
-    const count = type === "rain-heavy" ? 160 :
-                  type === "rain"       ? 70  :
-                  type === "snow"       ? 45  :
-                  (isStars || isFog)    ? 0   :
-                                          45;
-
-    for (let i = 0; i < count; i++) {
-        weatherParticles.push({
-            x: Math.random() * weatherCanvas.width,
-            y: Math.random() * weatherCanvas.height,
-            length: isRain
-                ? (type === "rain-heavy"
-                    ? 12 + Math.random() * 14
-                    : 8 + Math.random() * 10)
-                : 0,
-            speedY: isRain
-                ? (type === "rain-heavy"
-                    ? 6 + Math.random() * 5
-                    : 4 + Math.random() * 4)
-                : 0.5 + Math.random() * 1.2,
-            speedX: isRain
-                ? 0.5 + Math.random() * 1
-                : -0.5 + Math.random() * 1,
-            radius: isRain ? 0 : 1.5 + Math.random() * 2,
-            opacity: isRain
-                ? 0.35 + Math.random() * 0.4
-                : 0.5 + Math.random() * 0.4,
-            wobble: isRain ? 0 : Math.random() * Math.PI * 2,
-            wobbleSpeed: 0.02 + Math.random() * 0.03
-        });
+    if (env.reducedMotion) {             // a still, calm picture: one frame, no lightning
+        drawWeatherFrame(effect, style, 1, 0, true);
+        return;
     }
 
-        function draw() {
-        if (!weatherCtx || !weatherCanvas) return;
-
-        weatherCtx.clearRect(0, 0, weatherCanvas.width, weatherCanvas.height);
-
-        const t = performance.now();
-
-        // ⭐ Stars (clear nights)
-        if (isStars) {
-            drawStarField(weatherCtx, weatherCanvas.width, weatherCanvas.height, t);
+    const calm = !style || style.drop === "speck";
+    function loop(t) {
+        if (gen !== weatherFxGen) return;                 // a newer effect took over
+        if (document.visibilityState === "hidden") {      // paused; resumes on visibilitychange
+            weatherAnimFrame = null;
+            return;
         }
+        weatherAnimFrame = requestAnimationFrame(loop);
+        if (calm && weatherFxLastDraw && t - weatherFxLastDraw < FX_CALM_FRAME_MS) return;
+        const dt = weatherFxLastT ? fxClamp(t - weatherFxLastT, 0, 50) : 16.7;
+        weatherFxLastT = t;
+        weatherFxLastDraw = t;
+        drawWeatherFrame(effect, style, dt / 16.7, t, false);
+    }
+    weatherAnimFrame = requestAnimationFrame(loop);
+}
 
-        // 🌫️ Fog layers
-        if (isFog) {
-            drawFogLayer(weatherCtx, weatherCanvas.width, weatherCanvas.height, t);
+function resumeWeatherCanvas() {
+    if (!weatherEffect || weatherAnimFrame || fxReducedMotion()) return;
+    startWeatherCanvas(weatherEffect);
+}
+
+/* One frame. f = elapsed time in 60 fps frames (1 = 16.7 ms). */
+function drawWeatherFrame(effect, style, f, t, still) {
+    const ctx = weatherCtx;
+    if (!ctx || !weatherCanvas) return;
+    const w = weatherCanvas.width, h = weatherCanvas.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.globalAlpha = 1;
+
+    const kind = effect.kind;
+    if (kind === "clear-day") drawSunGlow(ctx, w, h, t);
+    if (kind === "clear-night") drawStarField(ctx, w, h, t);
+    if (kind === "clouds") drawCloudLayer(ctx, w, h, t, effect);
+    if (kind === "fog") drawFogLayer(ctx, w, h, t);
+    if (kind === "dust") drawFogLayer(ctx, w, h, t, "214, 185, 140");
+    if (kind === "thunder" && !still) drawLightning(ctx, w, h, t || performance.now());
+
+    if (style && weatherParticles.length) {
+        drawParticles(ctx, style, effect, w, h, f, still);
+    }
+    ctx.globalAlpha = 1;
+}
+
+/* Particles are drawn one layer at a time as ONE path each (a single
+   stroke/fill call per layer), which keeps cheap phones smooth. */
+function drawParticles(ctx, style, effect, w, h, f, still) {
+    const lineSlant = {
+        rain: fxSlant(effect, "rain"),
+        streak: fxSlant(effect, "streak")
+    };
+    ctx.strokeStyle = style.color;
+    ctx.fillStyle = style.color;
+    ctx.lineCap = "round";
+
+    for (let layer = 0; layer < FX_LAYERS.length; layer++) {
+        const L = FX_LAYERS[layer];
+        ctx.globalAlpha = style.alpha * L.alpha;
+
+        // Lines: rain, drizzle, freezing rain, squall streaks, sleet drops
+        ctx.lineWidth = (style.width || 1) * L.width;
+        ctx.beginPath();
+        let lines = 0;
+        for (const p of weatherParticles) {
+            if (p.layer !== layer || (p.drop !== "rain" && p.drop !== "streak")) continue;
+            const s = lineSlant[p.drop];
+            ctx.moveTo(p.x, p.y);
+            ctx.lineTo(p.x + p.len * s, p.y + p.len);
+            lines++;
         }
+        if (lines) ctx.stroke();
 
-        // ⚡ Lightning (thunderstorms only)
-        if (isThunder) {
-            drawLightning(weatherCtx, weatherCanvas.width, weatherCanvas.height, t);
+        // Dots: snow flakes, sleet flakes, dust specks
+        ctx.beginPath();
+        let dots = 0;
+        for (const p of weatherParticles) {
+            if (p.layer !== layer || (p.drop !== "snow" && p.drop !== "speck")) continue;
+            ctx.moveTo(p.x + p.r, p.y);
+            ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+            dots++;
         }
-
-        weatherParticles.forEach(p => {
-            if (weatherParticleType === "rain" ||
-                weatherParticleType === "rain-heavy") {
-                weatherCtx.strokeStyle = `rgba(186, 230, 253, ${p.opacity})`;
-                weatherCtx.lineWidth = 1.4;
-                weatherCtx.lineCap = "round";
-                weatherCtx.beginPath();
-                weatherCtx.moveTo(p.x, p.y);
-                weatherCtx.lineTo(p.x + p.speedX * 2, p.y + p.length);
-                weatherCtx.stroke();
-            } else {
-                weatherCtx.fillStyle = `rgba(255, 255, 255, ${p.opacity})`;
-                weatherCtx.beginPath();
-                weatherCtx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-                weatherCtx.fill();
-            }
-
-            p.y += p.speedY;
-            p.x += p.speedX;
-
-            if (weatherParticleType === "snow") {
-                p.wobble += p.wobbleSpeed;
-                p.x += Math.sin(p.wobble) * 0.4;
-            }
-
-            if (p.y > weatherCanvas.height + 10) {
-                p.y = -10;
-                p.x = Math.random() * weatherCanvas.width;
-            }
-
-            if (p.x < -10) p.x = weatherCanvas.width + 10;
-            if (p.x > weatherCanvas.width + 10) p.x = -10;
-        });
-
-        weatherAnimFrame = requestAnimationFrame(draw);
+        if (dots) ctx.fill();
     }
 
-    draw();
+    if (still) return;
+    for (const p of weatherParticles) {
+        if (p.drop === "rain" || p.drop === "streak") {
+            const dy = p.vy * f;
+            p.y += dy;
+            p.x += dy * lineSlant[p.drop];
+        } else {
+            p.wobble += p.wobbleSpeed * f;
+            p.y += p.vy * f;
+            p.x += (fxDrift(effect, p.drop) + Math.sin(p.wobble) * 0.4) * f;
+        }
+        if (p.y > h + 30) {
+            p.y = -20 - Math.random() * 20;
+            p.x = Math.random() * w;
+        }
+        if (p.x < -40) p.x += w + 80;
+        else if (p.x > w + 40) p.x -= w + 80;
+    }
+}
+
+/* Clear day: a soft warm glow in the top corner, breathing slowly. */
+function drawSunGlow(ctx, w, h, t) {
+    const cx = w * 0.85, cy = h * 0.12;
+    const r = Math.max(w, h) * (0.55 + 0.03 * Math.sin((t || 0) * 0.0008));
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    g.addColorStop(0, "rgba(255, 230, 150, 0.45)");
+    g.addColorStop(0.35, "rgba(255, 200, 90, 0.16)");
+    g.addColorStop(1, "rgba(255, 180, 60, 0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+}
+
+/* Clouds: one soft cloud picture made once, then copied (cheap), drifting
+   at a speed from the wind. More cloud cover = more clouds. */
+let _cloudSprite = null;
+let _cloudSpriteNight = null;
+let _clouds = null;
+let _cloudsKey = "";
+
+function makeCloudSprite(night) {
+    try {
+        const c = document.createElement("canvas");
+        c.width = 220; c.height = 110;
+        const g = c.getContext && c.getContext("2d");
+        if (!g) return null;
+        const tone = night ? "150, 160, 180" : "255, 255, 255";
+        [[70, 65, 45], [115, 50, 55], [160, 68, 42], [110, 75, 50]].forEach(([x, y, r]) => {
+            const grad = g.createRadialGradient(x, y, 0, x, y, r);
+            grad.addColorStop(0, `rgba(${tone}, 0.55)`);
+            grad.addColorStop(0.6, `rgba(${tone}, 0.25)`);
+            grad.addColorStop(1, `rgba(${tone}, 0)`);
+            g.fillStyle = grad;
+            g.beginPath();
+            g.arc(x, y, r, 0, Math.PI * 2);
+            g.fill();
+        });
+        return c;
+    } catch { return null; }
+}
+
+function drawCloudLayer(ctx, w, h, t, effect) {
+    const night = !!effect.night;
+    const sprite = night ? (_cloudSpriteNight ||= makeCloudSprite(true))
+                         : (_cloudSprite ||= makeCloudSprite(false));
+    if (!sprite) return;
+    const count = 2 + Math.round((effect.clouds / 100) * 4);         // 2..6
+    const key = `${w}x${h}x${count}`;
+    if (!_clouds || _cloudsKey !== key) {
+        _cloudsKey = key;
+        _clouds = [];
+        for (let i = 0; i < count; i++) {
+            _clouds.push({ x: Math.random() * w, y: h * (0.02 + Math.random() * 0.45),
+                           scale: 0.7 + Math.random() * 0.8, alpha: 0.5 + Math.random() * 0.4,
+                           speed: 0.6 + Math.random() * 0.8 });
+        }
+    }
+    // px per second: a breeze barely moves them, a strong wind pushes them along.
+    const wind = effect.windX || effect.windSpeed || 1;
+    const pxPerSec = fxClamp(4 + Math.abs(wind) * 2.5, 4, 45) * (wind < 0 ? -1 : 1);
+    const span = w + 260;
+    for (const c of _clouds) {
+        const x = (((c.x + (t / 1000) * pxPerSec * c.speed) % span) + span) % span - 220;
+        ctx.globalAlpha = c.alpha;
+        ctx.drawImage(sprite, x, c.y, 220 * c.scale, 110 * c.scale);
+    }
+    ctx.globalAlpha = 1;
 }
 
 /* =========================================================
@@ -1088,7 +1423,8 @@ function strokePath(ctx, points) {
 let _fogBlobs = null;
 let _fogBlobSize = { w: 0, h: 0 };
 
-function drawFogLayer(ctx, w, h, t) {
+/* tint: "r, g, b" of the haze (default cool fog; dust/sand/smoke pass a warm one). */
+function drawFogLayer(ctx, w, h, t, tint) {
     if (!_fogBlobs || _fogBlobSize.w !== w || _fogBlobSize.h !== h) {
         _fogBlobs = [];
         _fogBlobSize = { w, h };
@@ -1115,9 +1451,15 @@ function drawFogLayer(ctx, w, h, t) {
         const cy = b.y + wobbleY;
 
         const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, b.rx);
-        grad.addColorStop(0,    `rgba(235, 240, 250, ${b.alpha})`);
-        grad.addColorStop(0.55, `rgba(220, 228, 242, ${b.alpha * 0.5})`);
-        grad.addColorStop(1,    "rgba(210, 220, 240, 0)");
+        if (tint) {
+            grad.addColorStop(0,    `rgba(${tint}, ${b.alpha * 1.3})`);
+            grad.addColorStop(0.55, `rgba(${tint}, ${b.alpha * 0.6})`);
+            grad.addColorStop(1,    `rgba(${tint}, 0)`);
+        } else {
+            grad.addColorStop(0,    `rgba(235, 240, 250, ${b.alpha})`);
+            grad.addColorStop(0.55, `rgba(220, 228, 242, ${b.alpha * 0.5})`);
+            grad.addColorStop(1,    "rgba(210, 220, 240, 0)");
+        }
 
         ctx.fillStyle = grad;
         ctx.beginPath();
@@ -1330,71 +1672,48 @@ function drawMoon(ctx, cx, cy, r) {
     }
 }
 
+// Resize / rotate: rebuild the running effect for the new size (once it settles).
+let _fxResizeTimer = null;
 window.addEventListener("resize", () => {
-    if (!weatherCanvas || !weatherParticleType) return;
-    const parent = weatherCanvas.parentElement;
-    const rect = parent.getBoundingClientRect();
-    weatherCanvas.width = rect.width;
-    weatherCanvas.height = rect.height;
+    if (!weatherEffect) return;
+    clearTimeout(_fxResizeTimer);
+    _fxResizeTimer = setTimeout(() => { if (weatherEffect) startWeatherCanvas(weatherEffect); }, 250);
 });
+
+// Hidden tab: the loop stops itself; it starts again when the tab is back.
+document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+        if (weatherAnimFrame) cancelAnimationFrame(weatherAnimFrame);
+        weatherAnimFrame = null;
+    } else {
+        resumeWeatherCanvas();
+    }
+});
+watchPowerState();
 
 
 /* =========================================================
    WEATHER BACKGROUND FOR HERO CARD
 ========================================================= */
-function applyWeatherBackground(weatherId, iconCode, clouds) {
+let _fxStartTimer = null;
+function applyWeatherBackground(data) {
     const hero = document.querySelector(".cw-hero");
     if (!hero) return;
 
     stopWeatherCanvas();
+    clearTimeout(_fxStartTimer);
 
-    hero.classList.remove(
-        "weather-sunny",
-        "weather-cloudy",
-        "weather-rain",
-        "weather-thunder",
-        "weather-snow",
-        "weather-fog"
-    );
+    hero.classList.remove(...new Set(Object.values(FX_HERO_CLASS)));
 
-    let cls = "weather-cloudy";
-    let canvasType = null;
+    const real = pickWeatherEffect(weatherEffectInput(data));
+    let search = "";
+    try { search = window.location.search || ""; } catch {}
+    const effect = forcedWeatherEffect(search, real) || real;
 
-    if (weatherId >= 200 && weatherId <= 232) {
-        cls = "weather-thunder";
-        canvasType = "rain-heavy";
-    } else if (weatherId >= 502 && weatherId <= 531) {
-        cls = "weather-rain";
-        canvasType = "rain-heavy";
-    } else if (weatherId >= 300 && weatherId <= 501) {
-        cls = "weather-rain";
-        canvasType = "rain";
-    } else if (weatherId >= 600 && weatherId <= 622) {
-        cls = "weather-snow";
-        canvasType = "snow";
-    } else if (weatherId >= 701 && weatherId <= 781) {
-        cls = "weather-fog";
-        canvasType = "fog";
-    } else if (weatherId === 800) {
-        cls = "weather-sunny";
-    } else if (weatherId >= 801 && weatherId <= 804) {
-        cls = "weather-cloudy";
-    }
-
-    // Clear night → stars
-    if (!canvasType) {
-        const cloudPct = Number(clouds ?? 100);
-        const isNight = String(iconCode).endsWith("n");
-        const isClear = weatherId === 800 || weatherId === 801;
-        if (isNight && isClear && cloudPct < 30) {
-            canvasType = "stars";
-        }
-    }
-
-    hero.classList.add(cls);
-
-    if (canvasType) {
-        setTimeout(() => startWeatherCanvas(canvasType), 50);
+    hero.classList.add(FX_HERO_CLASS[effect.kind] || "weather-cloudy");
+    if (effect.kind !== "none") {
+        // Let the card finish laying out first, so the canvas gets its real size.
+        _fxStartTimer = setTimeout(() => startWeatherCanvas(effect), 50);
     }
 }
 
@@ -1440,7 +1759,7 @@ function displayWeather(data, opts = {}) {
     updateTheme(sys.sunrise, sys.sunset, timezone);
     updateDateTime();
 
-    applyWeatherBackground(weatherId, iconCode, clouds);
+    applyWeatherBackground(data);
 
     const cityElement = getElement("city");
     if (cityElement) cityElement.textContent = locationText;
@@ -1811,6 +2130,35 @@ function renderHourlyForecast(data) {
 /* =========================================================
    RENDER 5-DAY FORECAST
 ========================================================= */
+function uvLevelClass(uv) {
+    if (uv <= 2) return "uv-low";
+    if (uv <= 5) return "uv-moderate";
+    if (uv <= 7) return "uv-high";
+    if (uv <= 10) return "uv-very-high";
+    return "uv-extreme";
+}
+
+/* Sunrise, sunset (the place's local time) and max UV for one day of the
+   daily outlook. Each part is left out when missing; "" when all are. */
+function forecastDayExtraHtml(daily) {
+    if (!daily) return "";
+    const hhmm = v => (typeof v === "string" && /^\d\d:\d\d$/.test(v) ? v : "");
+    const rise = hhmm(daily.sunrise);
+    const set = hhmm(daily.sunset);
+    const uv = daily.uv_max === null || daily.uv_max === undefined ? NaN : Number(daily.uv_max);
+    const parts = [];
+    if (rise || set) {
+        parts.push(`<div class="forecast-sun">` +
+            (rise ? `<span title="Sunrise">🌅 ${rise}</span>` : "") +
+            (rise && set ? " · " : "") +
+            (set ? `<span title="Sunset">🌇 ${set}</span>` : "") + `</div>`);
+    }
+    if (Number.isFinite(uv)) {
+        const val = Math.round(uv);
+        parts.push(`<div class="forecast-uv ${uvLevelClass(val)}" title="Max UV index">UV ${val}</div>`);
+    }
+    return parts.length ? `<div class="forecast-extra">${parts.join("")}</div>` : "";
+}
 function renderForecast(data) {
     const container = getElement("forecast");
     if (!container) return;
@@ -1903,6 +2251,7 @@ function renderForecast(data) {
             <div class="forecast-low">${formatTemp(low, 0)}${tempUnit()}</div>
             <div class="forecast-rain">💧 ${rainChance}%</div>
             <div class="forecast-condition">${escapeHtml(condition)}</div>
+            ${forecastDayExtraHtml(daily)}
         `;
         container.appendChild(card);
     });

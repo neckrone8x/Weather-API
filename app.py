@@ -710,6 +710,15 @@ def _at(arr, i):
     return arr[i] if arr and i < len(arr) else None
 
 
+def _local_hhmm(stamp):
+    """Open-Meteo local time "2025-11-13T06:32" -> "06:32" (None if not a time)."""
+    s = str(stamp or "")
+    hhmm = s[11:16]
+    if len(s) >= 16 and s[10] == "T" and hhmm[2:3] == ":" and hhmm.replace(":", "").isdigit():
+        return hhmm
+    return None
+
+
 def _last_open_meteo(key):
     """The last good Open-Meteo result for this place, however old, or None."""
     saved = cache.get(f"stale:{key}")
@@ -739,6 +748,7 @@ def get_open_meteo(lat, lon):
             "daily": ",".join([
                 "weather_code", "temperature_2m_max", "temperature_2m_min",
                 "precipitation_probability_max", "precipitation_sum", "uv_index_max",
+                "sunrise", "sunset",
             ]),
             "timezone": "auto",
             "forecast_days": 16,
@@ -764,6 +774,9 @@ def get_open_meteo(lat, lon):
             "pop": (pop / 100.0) if pop is not None else None,
             "precipitation": _at(d.get("precipitation_sum"), i),
             "uv_max": _at(d.get("uv_index_max"), i),
+            # The place's own local clock time (timezone=auto), e.g. "06:32".
+            "sunrise": _local_hhmm(_at(d.get("sunrise"), i)),
+            "sunset": _local_hhmm(_at(d.get("sunset"), i)),
             "weather": {"id": owm_id, "icon": icon, "description": desc},
         })
 

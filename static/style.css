@@ -582,6 +582,32 @@ body.night-theme {
     opacity: 0.72;
 }
 
+/* Per-day sunrise / sunset / UV (from the daily outlook) */
+.forecast-extra {
+    margin-top: 8px;
+    padding-top: 7px;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    font-size: 11px;
+    line-height: 1.3;
+    font-variant-numeric: tabular-nums;
+}
+.forecast-sun { opacity: 0.8; white-space: nowrap; }
+.forecast-uv {
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.12);
+}
+.forecast-uv.uv-low       { background: rgba(34, 197, 94, 0.25); }
+.forecast-uv.uv-moderate  { background: rgba(234, 179, 8, 0.28); }
+.forecast-uv.uv-high      { background: rgba(249, 115, 22, 0.32); }
+.forecast-uv.uv-very-high { background: rgba(239, 68, 68, 0.34); }
+.forecast-uv.uv-extreme   { background: rgba(168, 85, 247, 0.36); }
+
 /* =========================================================
    FOOTER
 ========================================================= */
@@ -2224,6 +2250,14 @@ textarea.feedback-input {
         rgba(203, 213, 225, 0.20),
         rgba(100, 116, 139, 0.12));
     border-color: rgba(203, 213, 225, 0.30);
+}
+
+/* Dust, sand, smoke, ash: a warm haze */
+.cw-hero.weather-dust {
+    background: linear-gradient(135deg,
+        rgba(214, 185, 140, 0.24),
+        rgba(146, 110, 70, 0.14));
+    border-color: rgba(214, 185, 140, 0.35);
 }
 
 /* Canvas overlay for real rain/snow particles */
