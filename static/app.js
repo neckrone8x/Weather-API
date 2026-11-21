@@ -30,11 +30,99 @@ function getElement(id) {
 
 
 /* =========================================================
+   NETWORK — every request gives up after 20 s
+   (the timer keeps running while the body is read, so a reply
+   that stalls half-way is cut off too; aborting a finished
+   request does nothing)
+========================================================= */
+const FETCH_TIMEOUT_MS = 20000;
+
+function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), timeoutMs);
+    return fetch(url, { ...options, signal: controller.signal });
+}
+
+/* The service worker marks replies it served from its saved copy. */
+function savedCopyTime(response) {
+    if (!response || response.headers.get("X-SW-Fallback") !== "1") return null;
+    const t = Date.parse(response.headers.get("X-SW-Saved-At") || response.headers.get("Date") || "");
+    return Number.isFinite(t) ? t : 0;
+}
+
+
+/* =========================================================
+   "SHOWING SAVED DATA" NOTE + RETRY
+========================================================= */
+window._dataTime = null;   // when the weather on screen was fetched
+
+function formatSavedTime(ms) {
+    if (!Number.isFinite(ms) || ms <= 0) return "earlier";
+    const d = new Date(ms);
+    const time = d.toLocaleTimeString("en-KE", { hour: "2-digit", minute: "2-digit", hour12: false });
+    if (d.toDateString() === new Date().toDateString()) return time;
+    return `${d.toLocaleDateString("en-KE", { weekday: "short", day: "numeric", month: "short" })}, ${time}`;
+}
+
+function getDataStatusElement() {
+    let el = getElement("data-status");
+    if (el) return el;
+    const anchor = getElement("error-message");
+    if (!anchor || !anchor.parentNode) return null;
+    el = document.createElement("div");
+    el.id = "data-status";
+    el.className = "data-status";
+    el.setAttribute("role", "status");
+    el.hidden = true;
+    anchor.parentNode.insertBefore(el, anchor.nextSibling);
+    return el;
+}
+
+/* savedTime: ms of the data on screen (null = nothing saved).
+   onRetry: shows a Retry button. updating: a load is already running. */
+function showDataStatus(savedTime, onRetry, { updating = false } = {}) {
+    const el = getDataStatusElement();
+    if (!el) return;
+    el.textContent = "";
+
+    const text = document.createElement("span");
+    if (savedTime === null) {
+        text.textContent = "Couldn't load the weather right now.";
+    } else {
+        text.textContent = `Showing saved data from ${formatSavedTime(savedTime)}` +
+            (updating ? " · updating…" : "");
+    }
+    el.appendChild(text);
+
+    if (onRetry && !updating) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "data-status-retry";
+        btn.textContent = "Retry";
+        btn.addEventListener("click", () => {
+            btn.disabled = true;
+            btn.textContent = "Retrying…";
+            onRetry();
+        });
+        el.appendChild(btn);
+    }
+    el.hidden = false;
+}
+
+function clearDataStatus() {
+    const el = getElement("data-status");
+    if (el) {
+        el.hidden = true;
+        el.textContent = "";
+    }
+}
+
+
+/* =========================================================
    LOCAL CACHE — instant load on next visit
 ========================================================= */
 const WEATHER_CACHE_KEY = "neckrone8x_weather_cache";
 const FORECAST_CACHE_KEY = "neckrone8x_forecast_cache";
-const CACHE_MAX_AGE = 60 * 60 * 1000;   // 1 hour
 
 function saveWeatherToCache(weatherData, forecastData) {
     try {
@@ -55,25 +143,12 @@ function saveWeatherToCache(weatherData, forecastData) {
     }
 }
 
-function loadWeatherFromCache() {
+/* The last saved copy, however old: { data, time } or null.
+   (Shown with a "saved data from <time>" note, so age is no reason to hide it.) */
+function loadCacheEntry(key) {
     try {
-        const raw = localStorage.getItem(WEATHER_CACHE_KEY);
-        if (!raw) return null;
-        const entry = JSON.parse(raw);
-        if (!entry || !entry.data) return null;
-        if (Date.now() - entry.time > CACHE_MAX_AGE) return null;
-        return entry.data;
-    } catch { return null; }
-}
-
-function loadForecastFromCache() {
-    try {
-        const raw = localStorage.getItem(FORECAST_CACHE_KEY);
-        if (!raw) return null;
-        const entry = JSON.parse(raw);
-        if (!entry || !entry.data) return null;
-        if (Date.now() - entry.time > CACHE_MAX_AGE) return null;
-        return entry.data;
+        const entry = JSON.parse(localStorage.getItem(key) || "null");
+        return entry && entry.data ? entry : null;
     } catch { return null; }
 }
 
@@ -324,18 +399,19 @@ function setupRefreshButton() {
         const input = getElement("city-input");
 
         try {
+            let ok;
             if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lon)) {
-                await refreshByCoordinates(loc.lat, loc.lon, loc.name, loc.country, loc.state);
+                ok = await refreshByCoordinates(loc.lat, loc.lon, loc.name, loc.country, loc.state);
             } else if (input && input.value.trim()) {
-                await refreshByCity(input.value.trim());
+                ok = await refreshByCity(input.value.trim());
             } else {
-                await refreshByCity("Kisumu");
+                ok = await refreshByCity("Kisumu");
             }
 
             clearCityCardCache();
             renderCitiesGlance();
 
-            showToast("✅ Weather updated");
+            showToast(ok ? "✅ Weather updated" : "⚠️ Couldn't update — showing saved data");
         } catch (err) {
             console.error("Refresh failed:", err);
             showToast("❌ Refresh failed");
@@ -346,18 +422,13 @@ function setupRefreshButton() {
     });
 }
 
+/* Both resolve true only when fresh weather actually arrived. */
 function refreshByCoordinates(lat, lon, name = "", country = "", state = "") {
-    return new Promise((resolve) => {
-        getWeatherByCoordinates(lat, lon, name, country, state);
-        setTimeout(resolve, 800);
-    });
+    return getWeatherByCoordinates(lat, lon, name, country, state, { keepCurrent: true });
 }
 
 function refreshByCity(city) {
-    return new Promise((resolve) => {
-        getWeather(city);
-        setTimeout(resolve, 800);
-    });
+    return getWeather(city, { keepCurrent: true });
 }
 
 
@@ -608,7 +679,7 @@ async function checkLocationAlerts(lat, lon) {
     window.dispatchEvent(new Event("mkuu:context-changed"));
 
     try {
-        const res = await fetch(`/local-alerts?lat=${lat}&lon=${lon}`);
+        const res = await fetchWithTimeout(`/local-alerts?lat=${lat}&lon=${lon}`);
         if (!res.ok) return;
         const data = await res.json();
 
@@ -1243,7 +1314,9 @@ function applyWeatherBackground(weatherId, iconCode, clouds) {
 /* =========================================================
    DISPLAY CURRENT WEATHER
 ========================================================= */
-function displayWeather(data) {
+/* opts.saved: this is a saved copy, so don't fetch extras/alerts or track it. */
+function displayWeather(data, opts = {}) {
+    const live = !opts.saved;
     if (!data || (data.cod !== 200 && data.cod !== "200")) {
         const errorMessage = getElement("error-message");
         if (errorMessage) errorMessage.textContent = "City not found. Please try again.";
@@ -1357,11 +1430,8 @@ function displayWeather(data) {
 
     displaySunTimes(sys.sunrise, sys.sunset, timezone);
 
-    if (data.coord && Number.isFinite(data.coord.lat) && Number.isFinite(data.coord.lon)) {
+    if (live && data.coord && Number.isFinite(data.coord.lat) && Number.isFinite(data.coord.lon)) {
         fetchExtraData(data.coord.lat, data.coord.lon);
-    }
-
-    if (data.coord && Number.isFinite(data.coord.lat) && Number.isFinite(data.coord.lon)) {
         checkLocationAlerts(data.coord.lat, data.coord.lon);
     }
 
@@ -1399,7 +1469,7 @@ function displayWeather(data) {
         setRadarLocation(data.coord.lat, data.coord.lon, locationText);
     }
 
-    if (typeof mpTrack === "function") {
+    if (live && typeof mpTrack === "function") {
         mpTrack("weather_loaded", {
             city: locationText,
             country: countryCode,
@@ -1412,7 +1482,8 @@ function displayWeather(data) {
     }
 
     if (window.EarthGlobe) window.EarthGlobe.renderPanel(data);
-    saveWeatherToCache(data, window._lastForecastData || null);
+    // Saving happens in loadWeatherFull, once weather AND its forecast are in,
+    // so the saved pair always belongs together.
 }
 
 
@@ -1504,7 +1575,7 @@ function updateSunCountdown() {
    FETCH EXTRA DATA (UV + AQI)
 ========================================================= */
 function fetchExtraData(lat, lon) {
-    fetch(`/uv?lat=${lat}&lon=${lon}`)
+    fetchWithTimeout(`/uv?lat=${lat}&lon=${lon}`)
         .then(r => r.ok ? r.json() : null)
         .then(data => {
             const el = getElement("uv-index");
@@ -1527,7 +1598,7 @@ function fetchExtraData(lat, lon) {
             if (el) el.textContent = "--";
         });
 
-    fetch(`/air?lat=${lat}&lon=${lon}`)
+    fetchWithTimeout(`/air?lat=${lat}&lon=${lon}`)
         .then(r => r.ok ? r.json() : null)
         .then(data => {
             const el = getElement("air-quality");
@@ -1742,10 +1813,8 @@ function renderForecast(data) {
         container.innerHTML = "Forecast unavailable.";
     }
 
-    if (window._currentWeatherData) {
-        saveWeatherToCache(window._currentWeatherData, data);
-    }
-
+    // (Saved by loadWeatherFull, not here: re-rendering a saved copy or
+    // toggling °C/°F must not stamp old data with a new time.)
     if (window._currentWeatherData) {
         renderWhatToWear(window._currentWeatherData);
     }
@@ -1946,41 +2015,133 @@ function setLoadingState() {
 /* =========================================================
    LOAD WEATHER BY CITY
 ========================================================= */
-function getWeather(city) {
-    city = String(city || "").trim();
-    if (!city) return;
+/* =========================================================
+   SHARED WEATHER LOADER
+   One place that fetches /weather-full, with a timeout, and on any
+   failure keeps (or brings back) the last saved weather + a Retry note.
+   Resolves true when fresh weather was shown, false otherwise. Never rejects.
+========================================================= */
+let weatherLoadSeq = 0;
 
-    const errorMessage = getElement("error-message");
+function isShowingPlace(lat, lon) {
+    const loc = window._loadedLocation;
+    return !!(window._currentWeatherData && loc &&
+        Math.abs(Number(loc.lat) - Number(lat)) < 0.01 &&
+        Math.abs(Number(loc.lon) - Number(lon)) < 0.01);
+}
+
+function showWeatherPair(weather, forecast, opts = {}) {
+    displayWeather(weather, opts);
+    renderHourlyForecast(forecast);
+    renderForecast(forecast);
+}
+
+function setLoadingUi(message) {
     const cityElement = getElement("city");
     const conditionElement = getElement("condition");
     const temperatureElement = getElement("temperature");
-
-    if (errorMessage) errorMessage.textContent = "";
+    const forecastLocation = getElement("forecast-location");
     if (cityElement) cityElement.textContent = "Loading...";
-    if (conditionElement) conditionElement.textContent = "Loading weather...";
+    if (conditionElement) conditionElement.textContent = message;
     if (temperatureElement) temperatureElement.textContent = `--${tempUnit()}`;
+    if (forecastLocation) forecastLocation.textContent = "Loading...";
     setLoadingState();
-
     window._currentWeatherData = null;
+}
 
-    fetch(`/weather-full?city=${encodeURIComponent(city)}`)
-        .then(response => {
+function showSavedWeatherFallback(retry, failMessage) {
+    // Still showing weather (a refresh failed): keep it on screen.
+    if (window._currentWeatherData) {
+        showDataStatus(window._dataTime, retry);
+        return;
+    }
+    // Screen was cleared for a new place: bring back the last saved weather.
+    const w = loadCacheEntry(WEATHER_CACHE_KEY);
+    const f = loadCacheEntry(FORECAST_CACHE_KEY);
+    if (w) {
+        displayWeather(w.data, { saved: true });
+        if (f) {
+            renderHourlyForecast(f.data);
+            renderForecast(f.data);
+        }
+        window._dataTime = w.time;
+        showDataStatus(w.time, retry);
+        const errorMessage = getElement("error-message");
+        if (errorMessage) errorMessage.textContent = failMessage;
+        return;
+    }
+    // Nothing saved at all.
+    const cityElement = getElement("city");
+    const conditionElement = getElement("condition");
+    const forecastLocation = getElement("forecast-location");
+    const errorMessage = getElement("error-message");
+    if (cityElement) cityElement.textContent = "Weather unavailable";
+    if (conditionElement) conditionElement.textContent = failMessage;
+    if (forecastLocation) forecastLocation.textContent = "";
+    if (errorMessage) errorMessage.textContent = failMessage;
+    ["hourly-forecast", "forecast"].forEach(id => {
+        const el = getElement(id);
+        if (el) el.textContent = "Forecast unavailable.";
+    });
+    showDataStatus(null, retry);
+}
+
+/* url: the /weather-full URL.  retry: re-runs this same load.
+   adjust(weather, forecast): optional, may return a promise.
+   keepCurrent: leave the weather on screen while loading. */
+function loadWeatherFull(url, { retry, adjust, keepCurrent = false,
+                                loadingMessage = "Loading weather...",
+                                failMessage = "Unable to load weather." } = {}) {
+    const seq = ++weatherLoadSeq;
+    const errorMessage = getElement("error-message");
+    if (errorMessage) errorMessage.textContent = "";
+
+    if (!(keepCurrent && window._currentWeatherData)) {
+        setLoadingUi(loadingMessage);
+    }
+
+    return fetchWithTimeout(url)
+        .then(async response => {
             if (!response.ok) throw new Error(`Weather request failed: ${response.status}`);
-            return response.json();
-        })
-        .then(payload => {
+            const savedAt = savedCopyTime(response);
+            const payload = await response.json();
             if (!payload || !payload.weather || !payload.forecast) {
                 throw new Error("Invalid combined response");
             }
-            displayWeather(payload.weather);
-            renderHourlyForecast(payload.forecast);
-            renderForecast(payload.forecast);
+            if (adjust) await adjust(payload.weather, payload.forecast);
+            if (seq !== weatherLoadSeq) return false;      // a newer load took over
+
+            if (savedAt !== null) {
+                // The service worker answered from its saved copy (server hung/offline).
+                showWeatherPair(payload.weather, payload.forecast, { saved: true });
+                window._dataTime = savedAt;
+                showDataStatus(savedAt, retry);
+                return false;
+            }
+
+            showWeatherPair(payload.weather, payload.forecast);
+            saveWeatherToCache(payload.weather, payload.forecast);
+            window._dataTime = Date.now();
+            clearDataStatus();
+            return true;
         })
         .catch(error => {
+            if (seq !== weatherLoadSeq) return false;
             console.error("Weather error:", error);
-            if (conditionElement) conditionElement.textContent = "Unable to load weather.";
-            if (errorMessage) errorMessage.textContent = "Unable to load weather.";
+            showSavedWeatherFallback(retry, failMessage);
+            return false;
         });
+}
+
+
+function getWeather(city, opts = {}) {
+    city = String(city || "").trim();
+    if (!city) return Promise.resolve(false);
+
+    return loadWeatherFull(`/weather-full?city=${encodeURIComponent(city)}`, {
+        keepCurrent: !!opts.keepCurrent,
+        retry: () => getWeather(city, { keepCurrent: true })
+    });
 }
 
 
@@ -2024,55 +2185,26 @@ function selectLocation(location) {
 /* =========================================================
    WEATHER BY COORDINATES
 ========================================================= */
-function getWeatherByCoordinates(latitude, longitude, searchedName = "", searchedCountry = "", searchedState = "") {
-    const errorMessage = getElement("error-message");
-    const cityElement = getElement("city");
-    const conditionElement = getElement("condition");
-    const temperatureElement = getElement("temperature");
-    const forecastLocation = getElement("forecast-location");
+function getWeatherByCoordinates(latitude, longitude, searchedName = "", searchedCountry = "", searchedState = "", opts = {}) {
+    // Same place already on screen (refresh, auto-refresh, startup): keep it while loading.
+    const keepCurrent = opts.keepCurrent !== undefined
+        ? !!opts.keepCurrent
+        : isShowingPlace(latitude, longitude);
 
-    if (errorMessage) errorMessage.textContent = "";
-    if (cityElement) cityElement.textContent = "Loading...";
-    if (conditionElement) conditionElement.textContent = "Loading weather...";
-    if (temperatureElement) temperatureElement.textContent = `--${tempUnit()}`;
-    if (forecastLocation) forecastLocation.textContent = "Loading...";
-    setLoadingState();
-
-    window._currentWeatherData = null;
-
-    fetch(`/weather-full?lat=${latitude}&lon=${longitude}`)
-        .then(response => {
-            if (!response.ok) throw new Error(`Weather request failed: ${response.status}`);
-            return response.json();
-        })
-        .then(payload => {
-            if (!payload || !payload.weather || !payload.forecast) {
-                throw new Error("Invalid combined response");
-            }
-
-            const w = payload.weather;
-            const f = payload.forecast;
-
-            w.searched_location = {
+    return loadWeatherFull(`/weather-full?lat=${latitude}&lon=${longitude}`, {
+        keepCurrent,
+        retry: () => getWeatherByCoordinates(latitude, longitude, searchedName,
+                                             searchedCountry, searchedState, { keepCurrent: true }),
+        adjust: (w, f) => {
+            const place = {
                 name: searchedName || w.name,
                 country: searchedCountry || w.sys?.country || "",
                 state: searchedState || ""
             };
-            f.searched_location = {
-                name: searchedName || w.name,
-                country: searchedCountry || w.sys?.country || "",
-                state: searchedState || ""
-            };
-
-            displayWeather(w);
-            renderHourlyForecast(f);
-            renderForecast(f);
-        })
-        .catch(error => {
-            console.error("Coordinate weather error:", error);
-            if (conditionElement) conditionElement.textContent = "Unable to load weather.";
-            if (errorMessage) errorMessage.textContent = "Unable to load weather.";
-        });
+            w.searched_location = { ...place };
+            f.searched_location = { ...place };
+        }
+    });
 }
 
 
@@ -2096,7 +2228,7 @@ function searchLocations(city) {
     resultsContainer.style.display = "block";
     setControlsVisibility(false);
 
-    fetch(`/locations?city=${encodeURIComponent(city)}`)
+    fetchWithTimeout(`/locations?city=${encodeURIComponent(city)}`)
         .then(response => response.json().then(data => ({ status: response.status, data })))
         .then(({ status, data }) => {
             resultsContainer.innerHTML = "";
@@ -2277,62 +2409,32 @@ function useMyLocation() {
 /* =========================================================
    WEATHER BY GPS
 ========================================================= */
-function getWeatherByLocation(latitude, longitude, displayName = "Your Location") {
-    const errorMessage = getElement("error-message");
-    const cityElement = getElement("city");
-    const conditionElement = getElement("condition");
-    const forecastLocation = getElement("forecast-location");
-
-    if (cityElement) cityElement.textContent = "Loading...";
-    if (conditionElement) conditionElement.textContent = "Loading your local weather...";
-    if (forecastLocation) forecastLocation.textContent = "Loading...";
-    setLoadingState();
-
-    const reversePromise = fetch(`/reverse?lat=${latitude}&lon=${longitude}`)
+function getWeatherByLocation(latitude, longitude, displayName = "Your Location", opts = {}) {
+    // Place name runs in parallel; it is optional, so a failure just means no name.
+    const reversePromise = fetchWithTimeout(`/reverse?lat=${latitude}&lon=${longitude}`)
         .then(r => r.ok ? r.json() : null)
         .catch(() => null);
 
-    const weatherPromise = fetch(`/weather-full?lat=${latitude}&lon=${longitude}`)
-        .then(response => {
-            if (!response.ok) throw new Error(`GPS request failed: ${response.status}`);
-            return response.json();
-        });
+    const keepCurrent = opts.keepCurrent !== undefined
+        ? !!opts.keepCurrent
+        : isShowingPlace(latitude, longitude);
 
-    Promise.all([reversePromise, weatherPromise])
-        .then(([reverseData, payload]) => {
-            if (!payload || !payload.weather || !payload.forecast) {
-                throw new Error("Invalid combined response");
-            }
-
-            const w = payload.weather;
-            const f = payload.forecast;
-
-            const preciseName = (reverseData && reverseData.name) ? reverseData.name : displayName;
-            const preciseState = (reverseData && reverseData.state) ? reverseData.state : "";
-            const preciseCountry = (reverseData && reverseData.country) ? reverseData.country : "";
-
-            w.searched_location = {
-                name: preciseName || w.name,
-                country: preciseCountry || w.sys?.country || "",
-                state: preciseState || ""
+    return loadWeatherFull(`/weather-full?lat=${latitude}&lon=${longitude}`, {
+        keepCurrent,
+        loadingMessage: "Loading your local weather...",
+        failMessage: "Unable to load your local weather.",
+        retry: () => getWeatherByLocation(latitude, longitude, displayName, { keepCurrent: true }),
+        adjust: async (w, f) => {
+            const reverseData = await reversePromise;
+            const place = {
+                name: (reverseData && reverseData.name) || displayName || w.name,
+                country: (reverseData && reverseData.country) || w.sys?.country || "",
+                state: (reverseData && reverseData.state) || ""
             };
-            f.searched_location = {
-                name: preciseName || w.name,
-                country: preciseCountry || w.sys?.country || "",
-                state: preciseState || ""
-            };
-
-            displayWeather(w);
-            renderHourlyForecast(f);
-            renderForecast(f);
-
-            if (errorMessage) errorMessage.textContent = "";
-        })
-        .catch(error => {
-            console.error("GPS weather error:", error);
-            if (conditionElement) conditionElement.textContent = "Unable to load local weather.";
-            if (errorMessage) errorMessage.textContent = "Unable to load your local weather.";
-        });
+            w.searched_location = { ...place };
+            f.searched_location = { ...place };
+        }
+    });
 }
 
 
@@ -2535,7 +2637,7 @@ async function renderCatastropheWatch() {
     if (!container) return;
 
     try {
-        const res = await fetch("/global-alerts");
+        const res = await fetchWithTimeout("/global-alerts");
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const alerts = data.alerts || [];
@@ -2642,7 +2744,7 @@ function renderCitiesGlance() {
             return;
         }
 
-        fetch(`/weather?lat=${loc.lat}&lon=${loc.lon}`)
+        fetchWithTimeout(`/weather?lat=${loc.lat}&lon=${loc.lon}`)
             .then(r => r.ok ? r.json() : null)
             .then(data => {
                 if (!data || (data.cod !== 200 && data.cod !== "200")) {
@@ -3075,7 +3177,7 @@ function setupFeedback() {
             });
         }
 
-        fetch("/feedback", {
+        fetchWithTimeout("/feedback", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -3164,15 +3266,21 @@ window.WeatherHelpers = {
 async function loadDefaultWeather() {
     const input = getElement("city-input");
 
-    const cachedWeather = loadWeatherFromCache();
-    const cachedForecast = loadForecastFromCache();
+    // Show the last saved weather at once (however old, with a note), then
+    // update it in place: the loads below keep it on screen if they fail.
+    const savedEntry = loadCacheEntry(WEATHER_CACHE_KEY);
+    const cachedWeather = savedEntry ? savedEntry.data : null;
+    const forecastEntry = loadCacheEntry(FORECAST_CACHE_KEY);
+    const cachedForecast = forecastEntry ? forecastEntry.data : null;
 
     if (cachedWeather) {
-        displayWeather(cachedWeather);
+        displayWeather(cachedWeather, { saved: true });
         if (cachedForecast) {
             renderHourlyForecast(cachedForecast);
             renderForecast(cachedForecast);
         }
+        window._dataTime = savedEntry.time;
+        showDataStatus(savedEntry.time, null, { updating: true });
 
         const lastCoordsRaw = localStorage.getItem("weatherLastCoords");
         if (lastCoordsRaw) {
@@ -3180,7 +3288,8 @@ async function loadDefaultWeather() {
                 const lc = JSON.parse(lastCoordsRaw);
                 if (lc && Number.isFinite(lc.lat) && Number.isFinite(lc.lon)) {
                     if (input) input.value = lc.name || "";
-                    getWeatherByCoordinates(lc.lat, lc.lon, lc.name, lc.country, lc.state);
+                    getWeatherByCoordinates(lc.lat, lc.lon, lc.name, lc.country, lc.state,
+                                            { keepCurrent: true });
                     return;
                 }
             } catch (e) { /* fall through */ }
@@ -3189,15 +3298,18 @@ async function loadDefaultWeather() {
         const lastCity = localStorage.getItem("weatherLastCity");
         if (lastCity) {
             if (input) input.value = lastCity;
-            getWeather(lastCity);
+            getWeather(lastCity, { keepCurrent: true });
         } else if (cachedWeather.coord) {
             getWeatherByCoordinates(
                 cachedWeather.coord.lat,
                 cachedWeather.coord.lon,
                 cachedWeather.name || "",
                 cachedWeather.sys?.country || "",
-                ""
+                "",
+                { keepCurrent: true }
             );
+        } else {
+            showDataStatus(savedEntry.time, () => getWeather("Kisumu"));
         }
         return;
     }
@@ -3224,7 +3336,7 @@ async function loadDefaultWeather() {
     if (input) input.value = "Finding your location...";
 
     try {
-        const res = await fetch("/my-location");
+        const res = await fetchWithTimeout("/my-location");
         if (res.ok) {
             const data = await res.json();
             if (
@@ -3373,7 +3485,7 @@ function initRadarMap() {
 
 async function loadRadarFrames() {
     try {
-        const res = await fetch("https://api.rainviewer.com/public/weather-maps.json");
+        const res = await fetchWithTimeout("https://api.rainviewer.com/public/weather-maps.json");
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
 

@@ -8,8 +8,17 @@
      - every path ends in a real Response (never "nothing")
      - only good (200 OK) replies are saved, never errors
      - /health always goes straight to the server
+     - the network gets a time limit: if it hangs, the saved copy is
+       served (marked X-SW-Fallback: 1 so the page can say so)
 ========================================================= */
-const CACHE_NAME = "neckrone8x-weather-v30";
+const CACHE_NAME = "neckrone8x-weather-v31";
+
+// How long to wait for the network before serving the saved copy.
+// Kept under the page's own 20 s fetch timeout.
+const API_WAIT_MS = 12000;
+const PAGE_WAIT_MS = 8000;
+// With nothing saved, keep waiting up to this long, then give up.
+const HARD_LIMIT_MS = 25000;
 
 const APP_SHELL = [
     "/",
@@ -68,16 +77,66 @@ async function fromCache(request) {
     }
 }
 
-/* Network first; if the network fails, the last good copy; else `fallback()`. */
-async function networkFirst(request, fallback) {
+/* A saved copy, labelled so the page knows it isn't fresh. */
+function markSaved(cached) {
     try {
-        const response = await fetch(request);
-        remember(request, response);
-        return response;
+        const headers = new Headers(cached.headers);
+        headers.set("X-SW-Fallback", "1");
+        headers.set("X-SW-Saved-At", cached.headers.get("Date") || "");
+        return new Response(cached.body, {
+            status: cached.status,
+            statusText: cached.statusText,
+            headers
+        });
+    } catch (e) {
+        return cached;
+    }
+}
+
+const TIMED_OUT = Symbol("timed out");
+
+function wait(ms) {
+    return new Promise(resolve => setTimeout(() => resolve(TIMED_OUT), ms));
+}
+
+/* Network first, but never forever:
+     - network answers in time        -> that answer (good ones are saved)
+     - network fails                  -> the saved copy, else fallback()
+     - network hangs past `waitMs`    -> the saved copy if there is one;
+       with nothing saved, keep waiting until HARD_LIMIT_MS, then fallback(). */
+async function networkFirst(request, fallback, waitMs) {
+    const controller = new AbortController();
+    // A navigation can't be re-created with options (it would change its
+    // mode), so pages are fetched as-is and simply not aborted.
+    const network = (request.mode === "navigate"
+            ? fetch(request)
+            : fetch(request, { signal: controller.signal }))
+        .then(response => {
+            remember(request, response);
+            return response;
+        });
+    network.catch(() => { /* handled below */ });
+
+    try {
+        const first = await Promise.race([network, wait(waitMs)]);
+        if (first !== TIMED_OUT) return first;
     } catch (e) {
         const cached = await fromCache(request);
-        return cached || fallback();
+        return cached ? markSaved(cached) : fallback();
     }
+
+    // The network is hanging.
+    const cached = await fromCache(request);
+    if (cached) {
+        controller.abort();
+        return markSaved(cached);
+    }
+    try {
+        const late = await Promise.race([network, wait(HARD_LIMIT_MS - waitMs)]);
+        if (late !== TIMED_OUT) return late;
+    } catch (e) { /* fall through */ }
+    controller.abort();
+    return fallback();
 }
 
 /* ---------- Allow the page to trigger immediate activation ---------- */
@@ -123,7 +182,7 @@ self.addEventListener("fetch", (event) => {
 
     // 1) API calls
     if (API_PREFIXES.some(p => url.pathname.startsWith(p))) {
-        event.respondWith(networkFirst(request, offlineJson));
+        event.respondWith(networkFirst(request, offlineJson, API_WAIT_MS));
         return;
     }
 
@@ -138,7 +197,7 @@ self.addEventListener("fetch", (event) => {
                 return shell || offlineHtml();
             }
             return new Response("", { status: 503 });
-        }));
+        }, PAGE_WAIT_MS));
         return;
     }
 
