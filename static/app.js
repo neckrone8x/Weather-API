@@ -28,6 +28,21 @@ function getElement(id) {
     return document.getElementById(id);
 }
 
+/* Names from a saved city, a search result, a URL or an outside service are
+   text, never HTML: escape them before they go into innerHTML. */
+const HTML_ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+function escapeHtml(value) {
+    return String(value ?? "").replace(/[&<>"']/g, c => HTML_ESCAPES[c]);
+}
+
+/* Only http(s) links from outside data (so never "javascript:"). "" otherwise. */
+function safeHttpUrl(url) {
+    try {
+        const u = new URL(String(url || ""));
+        return u.protocol === "https:" || u.protocol === "http:" ? u.href : "";
+    } catch { return ""; }
+}
+
 
 /* =========================================================
    NETWORK — every request gives up after 20 s
@@ -1753,7 +1768,7 @@ function renderHourlyForecast(data) {
             <div class="hourly-icon">${icon}</div>
             <div class="hourly-temperature">${formatTemp(temp, 0)}${tempUnit()}</div>
             <div class="hourly-rain">💧 ${nowRain}</div>
-            <div class="hourly-condition">${condition}</div>
+            <div class="hourly-condition">${escapeHtml(condition)}</div>
         `;
         container.appendChild(nowCard);
     }
@@ -1786,7 +1801,7 @@ function renderHourlyForecast(data) {
             <div class="hourly-icon">${icon}</div>
             <div class="hourly-temperature">${formatTemp(temperature, 0)}${tempUnit()}</div>
             <div class="hourly-rain">💧 ${rainChance}%</div>
-            <div class="hourly-condition">${condition}</div>
+            <div class="hourly-condition">${escapeHtml(condition)}</div>
         `;
         container.appendChild(card);
     });
@@ -1887,7 +1902,7 @@ function renderForecast(data) {
             <div class="forecast-high">${formatTemp(high, 0)}${tempUnit()}</div>
             <div class="forecast-low">${formatTemp(low, 0)}${tempUnit()}</div>
             <div class="forecast-rain">💧 ${rainChance}%</div>
-            <div class="forecast-condition">${condition}</div>
+            <div class="forecast-condition">${escapeHtml(condition)}</div>
         `;
         container.appendChild(card);
     });
@@ -2109,6 +2124,11 @@ const WEATHER_UNAVAILABLE_MESSAGE =
     "Weather is temporarily unavailable. Please try again in a few minutes.";
 const SEARCH_UNAVAILABLE_MESSAGE =
     "City search is temporarily unavailable. Please try again in a few minutes.";
+// 429: the server's per-address limit (many phones can share one address).
+const RATE_LIMITED_MESSAGE =
+    "Too many requests from your network right now. Please wait a minute, then tap Retry.";
+const RATE_LIMITED_SEARCH_MESSAGE =
+    "Too many searches from your network right now. Please wait a minute, then try again.";
 
 function isShowingPlace(lat, lon) {
     const loc = window._loadedLocation;
@@ -2224,9 +2244,15 @@ function loadWeatherFull(url, { retry, adjust, keepCurrent = false, coords = nul
             if (seq !== weatherLoadSeq) return false;
             console.error("Weather error:", error);
             // 503 = the weather service is down on our side (e.g. its key is
-            // being replaced): say so plainly instead of a generic failure.
-            showSavedWeatherFallback(retry, error && error.status === 503
-                ? WEATHER_UNAVAILABLE_MESSAGE : failMessage);
+            // being replaced); 429 = too many requests from this address.
+            // Say so plainly instead of a generic failure.
+            const status = error && error.status;
+            const message = status === 429 ? RATE_LIMITED_MESSAGE
+                : status === 503 ? WEATHER_UNAVAILABLE_MESSAGE : failMessage;
+            showSavedWeatherFallback(retry, message);
+            // With weather still on screen the bar only says "saved data";
+            // a 429 also says why, so the user knows to wait before Retry.
+            if (status === 429 && errorMessage) errorMessage.textContent = RATE_LIMITED_MESSAGE;
             return false;
         });
 }
@@ -2334,6 +2360,10 @@ function searchLocations(city) {
         .then(({ status, data }) => {
             resultsContainer.innerHTML = "";
 
+            if (status === 429 || data.error === "rate_limited") {
+                showSearchProblem(city, RATE_LIMITED_SEARCH_MESSAGE);
+                return;
+            }
             if (status === 503 || data.error === "weather_unavailable") {
                 showSearchProblem(city, SEARCH_UNAVAILABLE_MESSAGE);
                 return;
@@ -2376,9 +2406,9 @@ function searchLocations(city) {
                 button.className = "location-item";
                 const countryName = getCountryName(location.country);
                 button.innerHTML = `
-                    <strong>📍 ${location.name || "Unknown location"}</strong>
-                    ${location.state ? `<small>📌 ${location.state}</small>` : ""}
-                    <small>🌍 ${countryName}</small>
+                    <strong>📍 ${escapeHtml(location.name || "Unknown location")}</strong>
+                    ${location.state ? `<small>📌 ${escapeHtml(location.state)}</small>` : ""}
+                    <small>🌍 ${escapeHtml(countryName)}</small>
                 `;
                 button.addEventListener("click", () => selectLocation(location));
                 resultsContainer.appendChild(button);
@@ -2832,24 +2862,29 @@ async function renderCatastropheWatch() {
         container.innerHTML = "";
         alerts.forEach(a => {
             const card = document.createElement("a");
-            card.className = `catastrophe-card ${(a.alertlevel || "").toLowerCase()}`;
-            card.href = a.url;
+            // GDACS data: the level becomes a class name (letters only), the
+            // link must be http(s), and every text is escaped.
+            const level = String(a.alertlevel || "").toLowerCase().replace(/[^a-z]/g, "");
+            card.className = `catastrophe-card ${level}`;
+            const link = safeHttpUrl(a.url);
+            if (link) card.href = link;
             card.target = "_blank";
             card.rel = "noopener noreferrer";
 
             const icon = getDisasterIcon(a.type);
             const typeLabel = getDisasterName(a.type);
+            const name = escapeHtml(a.name);
 
             card.innerHTML = `
                 <div class="catastrophe-icon">${icon}</div>
                 <div class="catastrophe-info">
                     <div class="catastrophe-type">${typeLabel}</div>
-                    <div class="catastrophe-name" title="${a.name}">${a.name}</div>
+                    <div class="catastrophe-name" title="${name}">${name}</div>
                     <div class="catastrophe-meta">
-                        <span class="catastrophe-badge ${(a.alertlevel || "").toLowerCase()}">
-                            ${a.alertlevel || "Green"}
+                        <span class="catastrophe-badge ${level}">
+                            ${escapeHtml(a.alertlevel || "Green")}
                         </span>
-                        <span>${a.country || ""}</span>
+                        <span>${escapeHtml(a.country || "")}</span>
                         <span class="catastrophe-view">View report →</span>
                     </div>
                 </div>
@@ -2900,7 +2935,7 @@ function renderCitiesGlance() {
         card.title = "Click to load " + (loc.name || "this location");
 
         card.innerHTML = `
-            <div class="city-card-name">📍 ${loc.name || "Unknown"}</div>
+            <div class="city-card-name">📍 ${escapeHtml(loc.name || "Unknown")}</div>
             <div class="city-card-spinner"></div>
         `;
 
@@ -2935,7 +2970,7 @@ function renderCitiesGlance() {
                 card.classList.remove("loading");
                 card.classList.add("error");
                 card.innerHTML = `
-                    <div class="city-card-name">📍 ${loc.name || "Unknown"}</div>
+                    <div class="city-card-name">📍 ${escapeHtml(loc.name || "Unknown")}</div>
                     <div class="city-card-feels">⚠️ Unavailable</div>
                 `;
             });
@@ -2951,11 +2986,11 @@ function fillCityCard(card, loc, data) {
     const temp = Number(data.main?.temp);
     const feels = Number(data.main?.feels_like);
 
-    const rawName = loc.name || data.name || "Unknown";
+    const rawName = String(loc.name || data.name || "Unknown");
     const shortName = rawName.length > 18 ? rawName.slice(0, 16) + "…" : rawName;
 
     card.innerHTML = `
-        <div class="city-card-name" title="${rawName}">📍 ${shortName}</div>
+        <div class="city-card-name" title="${escapeHtml(rawName)}">📍 ${escapeHtml(shortName)}</div>
         <div class="city-card-icon">${icon}</div>
         <div class="city-card-temp">${formatTemp(temp, 0)}${tempUnit()}</div>
         <div class="city-card-feels">feels ${formatTemp(feels, 0)}${tempUnit()}</div>

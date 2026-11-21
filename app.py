@@ -5,10 +5,12 @@ Upstreams:
   - OpenWeatherMap: current weather, 3-hourly 5-day forecast, geocoding, air pollution
   - Open-Meteo (free, no key): UV index + 16-day daily forecast
   - Nominatim: reverse geocoding        - ipapi.co: IP location
-  - GDACS / NWS / USGS: alerts          - SendGrid: feedback email
+  - GDACS / NWS / USGS: alerts          - SendGrid v3 HTTP API: feedback email
+                                          (plain HTTPS through upstream(); no SendGrid package)
 
 Every outside call goes through upstream(), which always ends within a hard
 deadline (DNS and slow-trickling replies included), so no request can hang.
+The API endpoints have generous per-address rate limits (see RATE LIMITS).
 """
 import contextvars
 import ipaddress
@@ -543,20 +545,57 @@ def coord_key(lat, lon):
     return f"{round(lat, 2):.2f},{round(lon, 2):.2f}"
 
 
-def client_ip():
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.remote_addr or ""
+# Addresses that are never a real visitor: private, carrier-NAT, loopback,
+# link-local (and the IPv6 equivalents).
+_NON_PUBLIC_NETS = tuple(ipaddress.ip_network(n) for n in (
+    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10",
+    "127.0.0.0/8", "169.254.0.0/16", "::1/128", "fc00::/7", "fe80::/10"))
+
+
+def _parse_ip(text):
+    """An ip_address from a header value, or None. Accepts '1.2.3.4:5678' and
+    '[2001:db8::1]:443' forms too; IPv4-mapped IPv6 becomes plain IPv4."""
+    text = (text or "").strip().strip('"')
+    if text.startswith("["):
+        text = text[1:].split("]", 1)[0]
+    elif text.count(":") == 1:             # IPv4 with a port
+        text = text.split(":", 1)[0]
+    try:
+        addr = ipaddress.ip_address(text)
+    except ValueError:
+        return None
+    mapped = getattr(addr, "ipv4_mapped", None)
+    return mapped or addr
+
+
+def _public(addr):
+    return bool(addr) and not (
+        any(addr in net for net in _NON_PUBLIC_NETS if net.version == addr.version)
+        or addr.is_private or addr.is_loopback or addr.is_link_local
+        or addr.is_multicast or addr.is_reserved or addr.is_unspecified)
 
 
 def is_public_ip(ip):
-    try:
-        addr = ipaddress.ip_address(ip)
-    except ValueError:
-        return False
-    return not (addr.is_private or addr.is_loopback or addr.is_reserved
-                or addr.is_link_local or addr.is_multicast)
+    return _public(_parse_ip(ip))
+
+
+def client_ip():
+    """The visitor's real address, or "unknown".
+    1. CF-Connecting-IP, only if it is a public address (set by Cloudflare).
+    2. X-Forwarded-For walked from the RIGHT (the hops our host added),
+       skipping private / carrier-NAT / loopback / link-local hops. Entries
+       further left can be typed by the visitor, so the first public one from
+       the right wins.
+    3. The connection's own address, if public."""
+    cf = _parse_ip(request.headers.get("CF-Connecting-IP"))
+    if _public(cf):
+        return str(cf)
+    for part in reversed(request.headers.get("X-Forwarded-For", "").split(",")):
+        addr = _parse_ip(part)
+        if _public(addr):
+            return str(addr)
+    addr = _parse_ip(request.remote_addr)
+    return str(addr) if _public(addr) else "unknown"
 
 
 # =================================
@@ -788,8 +827,85 @@ def add_cache_headers(resp):
     return resp
 
 
-API_PATHS = {"/weather", "/forecast", "/weather-full", "/uv", "/air",
+API_PATHS = {"/weather", "/weather-full", "/uv", "/air",
              "/locations", "/reverse", "/global-alerts", "/local-alerts"}
+
+
+# =================================
+# RATE LIMITS — per visitor address, in memory
+# Generous on purpose: many Kenyan phones share one carrier address, and one
+# page load fires several calls at once (/weather-full, /uv, /air,
+# /local-alerts, /my-location, /global-alerts, plus /weather for every saved
+# city). Each gunicorn worker keeps its own counts.
+# =================================
+RATE_WINDOW = 60                          # seconds
+RATE_LIMIT_ALL = 120                      # requests per address per window, all paths below
+RATE_LIMITS = {"/locations": 30}          # extra, tighter limit for these paths
+RATE_LIMITED_PATHS = frozenset({
+    "/weather-full", "/weather", "/locations", "/uv", "/air",
+    "/local-alerts", "/global-alerts", "/my-location"})
+RATE_TABLE_MAX = 20000                    # addresses remembered at most
+
+
+class RateLimiter:
+    """Fixed windows: each key gets `limit` hits per `window` seconds.
+    Refused hits are not counted, so a client that waits Retry-After gets in."""
+
+    def __init__(self, window=RATE_WINDOW, max_keys=RATE_TABLE_MAX, clock=time.monotonic):
+        self.window, self.max_keys, self.clock = window, max_keys, clock
+        self._hits = {}                   # key -> (window start, count)
+        self._lock = threading.Lock()
+
+    def hit(self, key, limit):
+        """Count one request. Returns 0 if allowed, else whole seconds to wait."""
+        now = self.clock()
+        with self._lock:
+            start, count = self._hits.get(key, (now, 0))
+            if now - start >= self.window:
+                start, count = now, 0
+            if count >= limit:
+                return max(1, math.ceil(start + self.window - now))
+            if key not in self._hits and len(self._hits) >= self.max_keys:
+                self._prune(now)
+            self._hits[key] = (start, count + 1)
+            return 0
+
+    def _prune(self, now):
+        for k in [k for k, (s, _) in self._hits.items() if now - s >= self.window]:
+            del self._hits[k]
+        if len(self._hits) >= self.max_keys:   # a flood of addresses: start over
+            self._hits.clear()
+
+    def reset(self):
+        with self._lock:
+            self._hits.clear()
+
+
+rate_limiter = RateLimiter()
+
+
+@app.before_request
+def _apply_rate_limits():
+    if request.path not in RATE_LIMITED_PATHS:
+        return None
+    ip = client_ip()
+    if ip == "unknown":
+        return None
+    wait = 0
+    if request.path in RATE_LIMITS:
+        wait = rate_limiter.hit(f"{request.path}|{ip}", RATE_LIMITS[request.path])
+    if not wait:
+        wait = rate_limiter.hit(f"all|{ip}", RATE_LIMIT_ALL)
+    if not wait:
+        return None
+    log.warning("Rate limited %s on %s (retry in %ss)", ip, request.path, wait)
+    resp = jsonify({"error": "rate_limited",
+                    "message": "Too many requests. Please wait a moment and try again.",
+                    "retry_after": wait})
+    resp.status_code = 429
+    resp.headers["Retry-After"] = str(wait)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 # =================================
@@ -858,20 +974,6 @@ def weather():
 
 
 # =================================
-# 5-DAY FORECAST (kept for compatibility)
-# =================================
-@app.route("/forecast")
-def forecast():
-    lat, lon, searched = resolve_location()
-    f1 = submit(get_current, lat, lon)
-    f2 = submit(get_forecast, lat, lon)
-    current = wait_for(f1, time_left())
-    fc = wait_for(f2, time_left())
-    w, f = attach_location(current, fc, searched)
-    return jsonify(f)
-
-
-# =================================
 # COMBINED WEATHER + FORECAST + DAILY OUTLOOK (one request)
 # =================================
 @app.route("/weather-full")
@@ -901,7 +1003,7 @@ def weather_full():
 
 # =================================
 # UV INDEX — Open-Meteo only.
-# (OWM's 2.5/uvi is retired and our key has no One Call 3.0 subscription.)
+# (No OpenWeatherMap UV endpoint is used.)
 # value is null when there is no UV at all: the page then hides the UV tile.
 # =================================
 @app.route("/uv")

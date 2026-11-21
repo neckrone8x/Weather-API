@@ -66,8 +66,10 @@
     function quakeLine(q) {
         const mag = num(q.magnitude);
         const depth = num(q.depth);
+        const km = q.distance_km === null ? null : num(q.distance_km);
         const when = ago(q.time);
         return `magnitude ${mag !== null ? mag.toFixed(1) : "?"} earthquake, ${q.place || "nearby"}` +
+            (km !== null ? `, ${Math.round(km)} km away` : "") +
             (depth !== null ? `, ${Math.round(depth)} km deep` : "") +
             (when ? `, ${when}` : "");
     }
@@ -157,7 +159,7 @@
             lines.push("Active weather alerts: none.");
         }
         if (quakes.length) {
-            lines.push("Earthquakes within 500 km in the last 7 days: " +
+            lines.push("Earthquakes nearby in the last 7 days (M4-4.9 within 300 km, M5+ within 800 km, M6+ within 1500 km): " +
                 quakes.map(quakeLine).join("; ") + ".");
         }
 

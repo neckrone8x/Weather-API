@@ -269,7 +269,6 @@ class SlowServiceTests(unittest.TestCase):
         self.assert_fast("/weather?lat=1&lon=1", 504)
         self.assert_fast("/weather?city=Nairobi", 504)          # geocoding inside
         self.assert_fast("/weather-full?city=Mombasa", 504)     # geocoding inside
-        self.assert_fast("/forecast?lat=2&lon=2", 504)
         self.assert_fast("/locations?city=Eldoret", 504)
         r = self.assert_fast("/air?lat=3&lon=3", 200)
         self.assertIsNone(r.get_json()["aqi"])
@@ -385,7 +384,7 @@ class UpstreamHelperTests(unittest.TestCase):
                 mock.patch.object(weather_app.http, "post", side_effect=spy_post), \
                 mock.patch.object(weather_app, "upstream", wraps=weather_app.upstream) as up:
             for path in ["/weather-full?city=Kisumu", "/weather?lat=1&lon=1",
-                         "/forecast?lat=2&lon=2", "/air?lat=3&lon=3",
+                         "/air?lat=3&lon=3",
                          "/locations?city=Nairobi", "/reverse?lat=4&lon=4",
                          "/global-alerts", "/local-alerts?lat=5&lon=5", "/uv?lat=6&lon=6"]:
                 self.assertEqual(self.client.get(path).status_code, 200, path)
@@ -569,7 +568,7 @@ class BadKeyTests(unittest.TestCase):
         self.reject = 403
         with self.assertLogs("weather", level="ERROR"):
             for path in ["/weather-full?lat=3&lon=4", "/weather?lat=3&lon=4",
-                         "/forecast?lat=3&lon=4", "/weather-full?city=Nakuru",
+                         "/weather-full?city=Nakuru",
                          "/locations?city=Nakuru"]:
                 r = self.client.get(path)
                 self.assertEqual(r.status_code, 503, path)
@@ -859,6 +858,193 @@ class WatchdogTests(unittest.TestCase):
         with mock.patch.object(weather_app.http, "get", side_effect=router):
             weather_app.app.test_client().get("/health")
         self.assertNotIn(threading.get_ident(), weather_app._inflight)
+
+
+class ClientIpTests(unittest.TestCase):
+    """client_ip(): the real visitor address behind Cloudflare / Render."""
+
+    def ip(self, remote="10.1.2.3", **headers):
+        hdrs = {k.replace("_", "-"): v for k, v in headers.items()}
+        with weather_app.app.test_request_context(
+                "/", headers=hdrs, environ_base={"REMOTE_ADDR": remote}):
+            return weather_app.client_ip()
+
+    def test_public_cloudflare_address_wins(self):
+        self.assertEqual(self.ip(CF_Connecting_IP="41.90.1.2",
+                                 X_Forwarded_For="197.248.5.5"), "41.90.1.2")
+
+    def test_private_or_junk_cloudflare_header_is_ignored(self):
+        for cf in ("10.0.0.9", "100.64.1.1", "127.0.0.1", "junk", ""):
+            self.assertEqual(self.ip(CF_Connecting_IP=cf, X_Forwarded_For="197.248.5.5"),
+                             "197.248.5.5", cf)
+
+    def test_forwarded_for_is_walked_from_the_right_skipping_inner_hops(self):
+        # "6.6.6.6" was typed by the visitor; Render added the rest.
+        xff = "6.6.6.6, 41.90.1.2, 100.64.3.4, 10.0.0.5, 172.16.9.9, 192.168.1.1, 127.0.0.1"
+        self.assertEqual(self.ip(X_Forwarded_For=xff), "41.90.1.2")
+
+    def test_ipv6_private_and_link_local_hops_are_skipped(self):
+        self.assertEqual(self.ip(X_Forwarded_For="2c0f:fe38::1, fd00::7, fe80::1, ::1"),
+                         "2c0f:fe38::1")
+
+    def test_ports_brackets_and_ipv4_mapped_forms(self):
+        self.assertEqual(self.ip(X_Forwarded_For="41.90.1.2:5050"), "41.90.1.2")
+        self.assertEqual(self.ip(X_Forwarded_For="[2c0f:fe38::1]:443"), "2c0f:fe38::1")
+        self.assertEqual(self.ip(X_Forwarded_For="::ffff:41.90.1.2"), "41.90.1.2")
+
+    def test_junk_entries_are_skipped(self):
+        self.assertEqual(self.ip(X_Forwarded_For="41.90.1.2, not-an-ip, ,"), "41.90.1.2")
+
+    def test_public_connection_address_is_the_last_resort(self):
+        self.assertEqual(self.ip(remote="197.248.7.7", X_Forwarded_For="10.0.0.1"),
+                         "197.248.7.7")
+
+    def test_nothing_public_is_unknown(self):
+        self.assertEqual(self.ip(remote="127.0.0.1"), "unknown")
+        self.assertEqual(self.ip(remote="10.0.0.2", X_Forwarded_For="192.168.0.4, 100.100.1.1"),
+                         "unknown")
+
+    def test_my_location_looks_up_the_real_address(self):
+        weather_app.cache.clear()
+        weather_app.rate_limiter.reset()
+        with mock.patch.object(weather_app.http, "get", side_effect=router) as get:
+            r = weather_app.app.test_client().get(
+                "/my-location", headers={"X-Forwarded-For": "6.6.6.6, 41.90.1.2, 10.0.0.5"})
+        self.assertEqual(r.get_json()["name"], "Kisumu")
+        self.assertIn("ipapi.co/41.90.1.2/", get.call_args.args[0])
+
+    def test_my_location_with_no_public_address_asks_nobody(self):
+        with mock.patch.object(weather_app.http, "get", side_effect=router) as get:
+            r = weather_app.app.test_client().get("/my-location")
+        self.assertIsNone(r.get_json()["lat"])
+        get.assert_not_called()
+
+
+class RateLimitTests(unittest.TestCase):
+    def setUp(self):
+        weather_app.cache.clear()
+        weather_app.rate_limiter.reset()
+        self.addCleanup(weather_app.rate_limiter.reset)
+        self.client = weather_app.app.test_client()
+        patcher = mock.patch.object(weather_app.http, "get", side_effect=router)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def get(self, path, ip="41.90.1.2"):
+        return self.client.get(path, headers={"X-Forwarded-For": ip})
+
+    def assert_limited(self, r):
+        self.assertEqual(r.status_code, 429)
+        self.assertEqual(r.get_json()["error"], "rate_limited")
+        wait = int(r.headers["Retry-After"])
+        self.assertTrue(1 <= wait <= weather_app.RATE_WINDOW, wait)
+        self.assertEqual(r.headers["Cache-Control"], "no-store")
+
+    def test_locations_allows_30_a_minute_then_429_with_retry_after(self):
+        with self.assertLogs("weather", level="WARNING") as logs:
+            for i in range(30):
+                self.assertEqual(self.get(f"/locations?city=Kisumu{i}").status_code, 200, i)
+            self.assert_limited(self.get("/locations?city=Kisumu"))
+        self.assertIn("Rate limited 41.90.1.2 on /locations", "\n".join(logs.output))
+        # other endpoints and other addresses still work
+        self.assertEqual(self.get("/weather?lat=1&lon=1").status_code, 200)
+        self.assertEqual(self.get("/locations?city=Kisumu", ip="41.90.9.9").status_code, 200)
+
+    def test_120_a_minute_overall_then_429(self):
+        paths = ["/weather-full?lat=1&lon=1", "/weather?lat=1&lon=1", "/uv?lat=1&lon=1",
+                 "/air?lat=1&lon=1", "/local-alerts?lat=1&lon=1", "/global-alerts",
+                 "/my-location"]
+        for i in range(weather_app.RATE_LIMIT_ALL):
+            self.assertEqual(self.get(paths[i % len(paths)]).status_code, 200, i)
+        with self.assertLogs("weather", level="WARNING"):
+            for path in paths + ["/locations?city=Kisumu"]:
+                self.assert_limited(self.get(path))
+
+    def test_pages_health_and_reverse_are_never_limited(self):
+        with self.assertLogs("weather", level="WARNING"):
+            for _ in range(weather_app.RATE_LIMIT_ALL + 1):
+                self.get("/global-alerts")
+        for path in ["/", "/health", "/reverse?lat=1&lon=1", "/manifest.json"]:
+            r = self.get(path)
+            self.assertNotEqual(r.status_code, 429, path)
+            r.close()
+
+    def test_unknown_address_is_never_limited(self):
+        for _ in range(weather_app.RATE_LIMITS["/locations"] + 10):
+            r = self.client.get("/locations?city=Kisumu")     # 127.0.0.1, no headers
+            self.assertEqual(r.status_code, 200)
+
+    def test_a_busy_minute_of_normal_use_stays_well_under_the_limit(self):
+        # One person: open the app 3 times, each load with 10 saved cities, plus
+        # 5 searches and the 5-minute auto-refresh. Burst = the calls one load fires.
+        def page_load():
+            calls = ["/my-location", "/global-alerts", "/weather-full?lat=-0.1&lon=34.75",
+                     "/local-alerts?lat=-0.1&lon=34.75", "/uv?lat=-0.1&lon=34.75",
+                     "/air?lat=-0.1&lon=34.75"]
+            calls += [f"/weather?lat={i}&lon=30" for i in range(10)]
+            return calls
+        calls = page_load() * 3 + [f"/locations?city=Town{i}" for i in range(5)] + page_load()[2:6]
+        self.assertLess(len(calls), weather_app.RATE_LIMIT_ALL / 2)
+        for path in calls:
+            self.assertEqual(self.get(path).status_code, 200, path)
+
+    def test_window_resets_and_refused_hits_do_not_count(self):
+        now = [1000.0]
+        rl = weather_app.RateLimiter(window=60, clock=lambda: now[0])
+        self.assertEqual([rl.hit("k", 2) for _ in range(2)], [0, 0])
+        self.assertEqual(rl.hit("k", 2), 60)
+        now[0] += 45
+        self.assertEqual(rl.hit("k", 2), 15)            # still waiting, not extended
+        now[0] += 15
+        self.assertEqual(rl.hit("k", 2), 0)             # new window
+        self.assertEqual(rl.hit("other", 2), 0)
+
+    def test_memory_stays_bounded(self):
+        now = [0.0]
+        rl = weather_app.RateLimiter(window=60, max_keys=100, clock=lambda: now[0])
+        for i in range(1000):
+            now[0] += 1
+            rl.hit(f"ip{i}", 5)
+        self.assertLessEqual(len(rl._hits), 100)
+
+
+class CleanupTests(unittest.TestCase):
+    ROOT = os.path.dirname(os.path.abspath(__file__))
+
+    def read(self, *parts):
+        with open(os.path.join(self.ROOT, *parts), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_forecast_route_is_gone(self):
+        self.assertEqual(weather_app.app.test_client().get("/forecast?lat=1&lon=1").status_code, 404)
+        self.assertNotIn("/forecast", weather_app.API_PATHS)
+        self.assertNotIn('"/forecast"', self.read("static", "service-worker.js"))
+        self.assertNotIn("/forecast?", self.read("static", "app.js"))
+
+    def test_requirements_are_utf8_without_unused_packages(self):
+        with open(os.path.join(self.ROOT, "requirements.txt"), "rb") as fh:
+            raw = fh.read()
+        self.assertFalse(raw.startswith((b"\xff\xfe", b"\xfe\xff", b"\xef\xbb\xbf")))
+        names = {line.split("==")[0].strip().lower()
+                 for line in raw.decode("utf-8").splitlines() if line.strip()}
+        for unused in ("sendgrid", "python-http-client", "cryptography", "cffi", "pycparser",
+                       "eventlet", "greenlet", "dnspython"):
+            self.assertNotIn(unused, names)
+        for needed in ("flask", "requests", "gunicorn", "python-dotenv", "urllib3"):
+            self.assertIn(needed, names)
+
+    def test_page_escapes_names_before_innerhtml(self):
+        import re
+        js = self.read("static", "app.js")
+        self.assertIn("function escapeHtml(", js)
+        templates = re.findall(r"innerHTML\s*=\s*`(.*?)`;", js, re.S)
+        self.assertGreater(len(templates), 8)
+        html = "\n".join(templates)
+        # ${loc.name} or ${loc.name || "Unknown"} straight into HTML
+        raw = re.findall(r"\$\{\s*(?:loc|location|a)\.(?:name|state|country|alertlevel)\s*(?:\}|\|\|)", html)
+        self.assertEqual(raw, [], "a name goes into HTML without escapeHtml()")
+        for var in ("rawName", "shortName", "condition", "countryName"):
+            self.assertNotIn("${" + var + "}", html)
 
 
 if __name__ == "__main__":

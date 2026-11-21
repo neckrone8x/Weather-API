@@ -6,7 +6,8 @@
      - Images / icons   → cache-first (they rarely change)
    Rules that keep it from ever breaking a request:
      - every path ends in a real Response (never "nothing")
-     - only good (200 OK) replies are saved, never errors
+     - only good (200 OK) replies are saved, never errors (a 429 "slow down"
+       reply goes straight to the page, which shows its own message + Retry)
      - /health always goes straight to the server
      - the network gets a time limit: if it hangs, the saved copy is
        served (marked X-SW-Fallback: 1 so the page can say so)
@@ -27,7 +28,7 @@ const APP_SHELL = [
 ];
 
 const API_PREFIXES = [
-    "/weather", "/forecast", "/locations", "/uv", "/air",
+    "/weather", "/locations", "/uv", "/air",
     "/reverse", "/my-location", "/local-alerts", "/global-alerts"
 ];
 
