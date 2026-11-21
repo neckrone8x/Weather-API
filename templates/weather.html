@@ -76,8 +76,13 @@
         <div class="top-bar">
             <div class="brand">NECKRONE8X</div>
             <div class="top-actions">
-                <button id="unit-toggle" class="theme-toggle-btn" type="button" title="Toggle °C/°F">°C</button>
-                <button id="refresh-btn" class="theme-toggle-btn" type="button" title="Refresh weather">🔄</button>
+                <div class="lang-switch" role="group" aria-label="Language" data-i18n-aria="lang_switch">
+                    <button type="button" class="lang-btn" data-lang-choice="en" lang="en" aria-pressed="true">EN</button>
+                    <span class="lang-sep" aria-hidden="true">|</span>
+                    <button type="button" class="lang-btn" data-lang-choice="sw" lang="sw" aria-pressed="false">SW</button>
+                </div>
+                <button id="unit-toggle" class="theme-toggle-btn" type="button" title="Toggle °C/°F" data-i18n-title="unit_toggle">°C</button>
+                <button id="refresh-btn" class="theme-toggle-btn" type="button" title="Refresh weather" data-i18n-title="refresh">🔄</button>
                 <button id="theme-toggle" class="theme-toggle-btn" type="button" title="Toggle theme">🌗</button>
             </div>
         </div>
@@ -85,36 +90,36 @@
                 <!-- SEARCH -->
         <div class="search-box">
             <div class="search-input-wrapper">
-                <input type="text" id="city-input" placeholder="Search city or place..." autocomplete="off">
-                <button id="clear-search" type="button" aria-label="Clear search">✕</button>
-                <select id="voice-lang" title="Voice search language" aria-label="Voice search language"></select>
-                <button id="voice-search" type="button" aria-label="Search by voice" title="Search by voice">
+                <input type="text" id="city-input" placeholder="Search city or place..." data-i18n-placeholder="search_placeholder" autocomplete="off">
+                <button id="clear-search" type="button" aria-label="Clear search" data-i18n-aria="clear_search">✕</button>
+                <select id="voice-lang" title="Voice search language" aria-label="Voice search language" data-i18n-title="voice_lang" data-i18n-aria="voice_lang"></select>
+                <button id="voice-search" type="button" aria-label="Search by voice" title="Search by voice" data-i18n-aria="voice_search">
     <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
         <path d="M12 14.5a3.5 3.5 0 0 0 3.5-3.5V6a3.5 3.5 0 1 0-7 0v5a3.5 3.5 0 0 0 3.5 3.5z"/>
         <path d="M18 11a1 1 0 1 0-2 0 4 4 0 1 1-8 0 1 1 0 1 0-2 0 6 6 0 0 0 5 5.91V19H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-2.09A6 6 0 0 0 18 11z"/>
     </svg>
 </button>
             </div>
-            <button id="search-button" type="button">Search</button>
+            <button id="search-button" type="button" data-i18n="search">Search</button>
         </div>
 
         <!-- SEARCH HINT -->
         <div id="search-hint" class="search-hint">
-            💡 For a more specific location, try:
+            <span data-i18n="search_hint">💡 For a more specific location, try:</span>
             <strong>Luanda, Kenya</strong>
         </div>
 
         <!-- GPS BUTTON -->
-        <button id="location-button" class="location-button" type="button">📍 Use My Location</button>
+        <button id="location-button" class="location-button" type="button" data-i18n-init="use_my_location">📍 Use My Location</button>
 
         <!-- CONTROLS: AUTO-REFRESH + SAVE -->
         <div class="controls-bar">
-            <button id="save-location-btn" class="save-btn" type="button" title="Save this location">♡ Save Location</button>
-            <button id="share-btn" class="save-btn facebook-btn" type="button" title="Share">
+            <button id="save-location-btn" class="save-btn" type="button" title="Save this location" data-i18n-title="save_location_title" data-i18n-init="save_location">♡ Save Location</button>
+            <button id="share-btn" class="save-btn facebook-btn" type="button" title="Share" data-i18n-title="share">
                 <svg class="fb-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
                     <path fill="currentColor" d="M14 9V5.5L21 12l-7 6.5V15c-4.5 0-7.5 1-9.5 4.5C5.5 13 8.5 9.5 14 9z"/>
                 </svg>
-                <span>Share</span>
+                <span data-i18n="share">Share</span>
             </button>
         </div>
 
@@ -128,10 +133,10 @@
         <div id="safety-alert" class="safety-alert" style="display: none;">
             <div class="safety-alert-icon" id="safety-alert-icon">⚠️</div>
             <div class="safety-alert-content">
-                <div class="safety-alert-title" id="safety-alert-title">Weather Alert</div>
+                <div class="safety-alert-title" id="safety-alert-title" data-i18n-init="weather_alert">Weather Alert</div>
                 <div class="safety-alert-text" id="safety-alert-text"></div>
             </div>
-            <button id="safety-alert-close" class="safety-alert-close" type="button">✕</button>
+            <button id="safety-alert-close" class="safety-alert-close" type="button" aria-label="Dismiss" data-i18n-aria="dismiss">✕</button>
         </div>
 
         <!-- ERROR MESSAGE -->
@@ -142,21 +147,21 @@
 
             <!-- QUICK NAV -->
             <nav class="quick-nav">
-                <a href="#section-now">Now</a>
-                <a href="#section-hourly">Hourly</a>
-                <a href="#section-radar">Radar</a>  
-                <a href="#section-forecast">5-Day</a>
-                <a href="#section-calendar">Calendar</a>
-                <a href="#section-cities">Cities</a>
-                <a href="#section-catastrophe">Alerts</a>
-                <a href="#section-globe">Globe</a>
+                <a href="#section-now" data-i18n="nav_now">Now</a>
+                <a href="#section-hourly" data-i18n="nav_hourly">Hourly</a>
+                <a href="#section-radar" data-i18n="nav_radar">Radar</a>
+                <a href="#section-forecast" data-i18n="nav_5day">5-Day</a>
+                <a href="#section-calendar" data-i18n="nav_calendar">Calendar</a>
+                <a href="#section-cities" data-i18n="nav_cities">Cities</a>
+                <a href="#section-catastrophe" data-i18n="nav_alerts">Alerts</a>
+                <a href="#section-globe" data-i18n="nav_globe">Globe</a>
             </nav>
 
             <div class="current-weather" id="section-now">
                 <!-- HEADER: city / date / time -->
                 <div class="cw-header">
-                    <div class="city" id="city">Loading...</div>
-                    <div class="date" id="date">Loading date...</div>
+                    <div class="city" id="city" data-i18n-init="loading">Loading...</div>
+                    <div class="date" id="date" data-i18n-init="loading_date">Loading date...</div>
                     <div class="time" id="time">--:--:--</div>
                 </div>
 
@@ -167,12 +172,12 @@
                         <canvas class="weather-canvas" id="weather-canvas"></canvas>
                         <div class="weather-icon" id="weather-icon">🌤️</div>
                         <div class="temperature" id="temperature">--°C</div>
-                        <div class="condition" id="condition">Loading weather...</div>
+                        <div class="condition" id="condition" data-i18n-init="loading_weather">Loading weather...</div>
                         <div class="weather-report" id="weather-report"></div>
                         <div id="swipe-hint" class="swipe-hint" style="display: none;">
-                            <button type="button" class="swipe-nav-btn" data-nav="-1" aria-label="Previous saved city">◀</button>
-                            <span class="swipe-hint-text">Switch cities</span>
-                            <button type="button" class="swipe-nav-btn" data-nav="1" aria-label="Next saved city">▶</button>
+                            <button type="button" class="swipe-nav-btn" data-nav="-1" aria-label="Previous saved city" data-i18n-aria="prev_city">◀</button>
+                            <span class="swipe-hint-text" data-i18n="switch_cities">Switch cities</span>
+                            <button type="button" class="swipe-nav-btn" data-nav="1" aria-label="Next saved city" data-i18n-aria="next_city">▶</button>
                         </div>
                     </div>
 
@@ -182,56 +187,56 @@
                         <div class="what-to-wear" id="what-to-wear">
                             <div class="wtw-icon" id="wtw-icon">👕</div>
                             <div class="wtw-content">
-                                <div class="wtw-title">WHAT TO WEAR TODAY</div>
-                                <div class="wtw-text" id="wtw-text">Loading...</div>
+                                <div class="wtw-title" data-i18n="what_to_wear">WHAT TO WEAR TODAY</div>
+                                <div class="wtw-text" id="wtw-text" data-i18n-init="loading">Loading...</div>
                             </div>
                         </div>
 
                         <div class="details">
                             <div class="detail">
-                                <div class="detail-title">FEELS LIKE</div>
+                                <div class="detail-title" data-i18n="feels_like">FEELS LIKE</div>
                                 <div class="detail-value" id="feels-like">--°C</div>
                             </div>
                             <div class="detail">
-                                <div class="detail-title">HUMIDITY</div>
+                                <div class="detail-title" data-i18n="humidity">HUMIDITY</div>
                                 <div class="detail-value" id="humidity">--%</div>
                             </div>
                             <div class="detail">
-                                <div class="detail-title">WIND</div>
+                                <div class="detail-title" data-i18n="wind">WIND</div>
                                 <div class="detail-value" id="wind">-- m/s</div>
                             </div>
                             <div class="detail">
-                                <div class="detail-title">CLOUDS</div>
+                                <div class="detail-title" data-i18n="clouds">CLOUDS</div>
                                 <div class="detail-value" id="clouds">--%</div>
                             </div>
                         </div>
 
                         <div class="sun-times">
                             <div class="detail">
-                                <div class="detail-title">🌅 SUNRISE</div>
+                                <div class="detail-title" data-i18n="sunrise">🌅 SUNRISE</div>
                                 <div class="detail-value" id="sunrise">--:--</div>
                             </div>
                             <div class="detail">
-                                <div class="detail-title">🌇 SUNSET</div>
+                                <div class="detail-title" data-i18n="sunset">🌇 SUNSET</div>
                                 <div class="detail-value" id="sunset">--:--</div>
                             </div>
                         </div>
 
                         <div class="extra-details">
                             <div class="extra-detail">
-                                <div class="detail-title">☀️ UV INDEX</div>
+                                <div class="detail-title" data-i18n="uv_index">☀️ UV INDEX</div>
                                 <div class="detail-value" id="uv-index">--</div>
                             </div>
                             <div class="extra-detail">
-                                <div class="detail-title">😷 AIR QUALITY</div>
+                                <div class="detail-title" data-i18n="air_quality">😷 AIR QUALITY</div>
                                 <div class="detail-value" id="air-quality">--</div>
                             </div>
                             <div class="extra-detail">
-                                <div class="detail-title">🌙 MOON</div>
+                                <div class="detail-title" data-i18n="moon">🌙 MOON</div>
                                 <div class="detail-value" id="moon-phase">--</div>
                             </div>
                             <div class="extra-detail">
-                                <div class="detail-title" id="sun-countdown-label">🌇 SUNSET IN</div>
+                                <div class="detail-title" id="sun-countdown-label" data-i18n-init="sunset_in">🌇 SUNSET IN</div>
                                 <div class="detail-value" id="sun-countdown">--</div>
                             </div>
                         </div>
@@ -243,22 +248,22 @@
 
             <!-- WEATHER DETAILS -->
             <section class="weather-details">
-                <h2>WEATHER DETAILS</h2>
+                <h2 data-i18n="weather_details">WEATHER DETAILS</h2>
                 <div id="weather-details-container">
                     <div class="detail-card">
-                        <span>🌡️ PRESSURE</span>
+                        <span data-i18n="pressure">🌡️ PRESSURE</span>
                         <strong id="pressure">-- hPa</strong>
                     </div>
                     <div class="detail-card">
-                        <span>👁️ VISIBILITY</span>
+                        <span data-i18n="visibility">👁️ VISIBILITY</span>
                         <strong id="visibility">-- km</strong>
                     </div>
                     <div class="detail-card">
-                        <span>🌬️ WIND DIRECTION</span>
+                        <span data-i18n="wind_direction">🌬️ WIND DIRECTION</span>
                         <strong id="wind-direction">--°</strong>
                     </div>
                     <div class="detail-card">
-                        <span>💨 WIND GUST</span>
+                        <span data-i18n="wind_gust">💨 WIND GUST</span>
                         <strong id="wind-gust">-- m/s</strong>
                     </div>
                 </div>
@@ -266,7 +271,7 @@
 
             <!-- HOURLY FORECAST -->
             <section class="hourly-section" id="section-hourly">
-                <div class="forecast-title">HOURLY FORECAST</div>
+                <div class="forecast-title" data-i18n="hourly_forecast">HOURLY FORECAST</div>
                 <div class="hourly-forecast" id="hourly-forecast">
                     <div class="loading-container"><div class="spinner"></div></div>
                 </div>
@@ -275,21 +280,21 @@
                         <!-- PRECIPITATION RADAR -->
             <section class="radar-section" id="section-radar">
                 <div class="forecast-title">
-                    PRECIPITATION RADAR
-                    <div id="radar-location" class="forecast-location">Loading...</div>
+                    <span data-i18n="radar_title">PRECIPITATION RADAR</span>
+                    <div id="radar-location" class="forecast-location" data-i18n-init="loading">Loading...</div>
                 </div>
                 <div class="radar-container">
                     <div id="radar-map"></div>
                     <div class="radar-controls">
-                        <button id="radar-prev" class="radar-btn" type="button" title="Previous frame">⏮</button>
-                        <button id="radar-play" class="radar-btn" type="button" title="Play/Pause">▶ Play</button>
-                        <button id="radar-next" class="radar-btn" type="button" title="Next frame">⏭</button>
+                        <button id="radar-prev" class="radar-btn" type="button" title="Previous frame" data-i18n-title="radar_prev" data-i18n-aria="radar_prev">⏮</button>
+                        <button id="radar-play" class="radar-btn" type="button" title="Play/Pause" data-i18n-title="radar_play_title" data-i18n-init="radar_play">▶ Play</button>
+                        <button id="radar-next" class="radar-btn" type="button" title="Next frame" data-i18n-title="radar_next" data-i18n-aria="radar_next">⏭</button>
                         <div class="radar-time" id="radar-time">--:--</div>
                     </div>
                     <div class="radar-attribution">
-                        Radar data © <a href="https://www.rainviewer.com/" target="_blank" rel="noopener">RainViewer</a>
+                        <span data-i18n="radar_data">Radar data ©</span> <a href="https://www.rainviewer.com/" target="_blank" rel="noopener">RainViewer</a>
                         &nbsp;·&nbsp;
-                        Map © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>
+                        <span data-i18n="map_credit">Map ©</span> <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>
                     </div>
                 </div>
             </section>
@@ -297,8 +302,8 @@
             <!-- 5-DAY FORECAST -->
             <section class="forecast-section" id="section-forecast">
                 <div class="forecast-title">
-                    5-DAY FORECAST
-                    <div id="forecast-location" class="forecast-location">Loading...</div>
+                    <span data-i18n="forecast_5day">5-DAY FORECAST</span>
+                    <div id="forecast-location" class="forecast-location" data-i18n-init="loading">Loading...</div>
                 </div>
                 <div class="forecast" id="forecast">
                     <div class="loading-container"><div class="spinner"></div></div>
@@ -308,18 +313,18 @@
             <!-- MONTHLY CALENDAR -->
             <section class="calendar-section" id="section-calendar">
                 <div class="forecast-title">
-                    MONTHLY CALENDAR
-                    <div id="calendar-location" class="forecast-location">Loading...</div>
+                    <span data-i18n="calendar_title">MONTHLY CALENDAR</span>
+                    <div id="calendar-location" class="forecast-location" data-i18n-init="loading">Loading...</div>
                 </div>
                    <div class="calendar-container">
                     <div class="calendar-nav">
-                        <button id="cal-prev" class="cal-nav-btn" type="button" aria-label="Previous month">◀</button>
-                        <div class="cal-month-label" id="cal-month-label">Loading...</div>
-                        <button id="cal-next" class="cal-nav-btn" type="button" aria-label="Next month">▶</button>
+                        <button id="cal-prev" class="cal-nav-btn" type="button" aria-label="Previous month" data-i18n-aria="prev_month">◀</button>
+                        <div class="cal-month-label" id="cal-month-label" data-i18n-init="loading">Loading...</div>
+                        <button id="cal-next" class="cal-nav-btn" type="button" aria-label="Next month" data-i18n-aria="next_month">▶</button>
                     </div>
                     <div class="calendar-weekdays">
-                        <div>Sun</div><div>Mon</div><div>Tue</div>
-                        <div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
+                        <div data-i18n-day="0">Sun</div><div data-i18n-day="1">Mon</div><div data-i18n-day="2">Tue</div>
+                        <div data-i18n-day="3">Wed</div><div data-i18n-day="4">Thu</div><div data-i18n-day="5">Fri</div><div data-i18n-day="6">Sat</div>
                     </div>
                     <div class="calendar-grid" id="calendar-grid"></div>
                 </div>
@@ -327,9 +332,9 @@
 
             <!-- SAVED CITIES AT A GLANCE -->
             <section class="cities-section" id="section-cities">
-                <div class="forecast-title">YOUR SAVED CITIES</div>
+                <div class="forecast-title" data-i18n="saved_cities">YOUR SAVED CITIES</div>
                 <div id="cities-glance" class="cities-glance">
-                    <div class="cities-empty">
+                    <div class="cities-empty" data-i18n-init="cities_empty">
                         💡 Save a location with the ♡ button to see it here
                     </div>
                 </div>
@@ -337,25 +342,25 @@
 
             <!-- GLOBAL CATASTROPHE WATCH -->
             <section class="catastrophe-section" id="section-catastrophe">
-                <div class="forecast-title">GLOBAL CATASTROPHE WATCH</div>
-                <div class="catastrophe-subtitle">Active major disasters worldwide (last 30 days)</div>
+                <div class="forecast-title" data-i18n="catastrophe_title">GLOBAL CATASTROPHE WATCH</div>
+                <div class="catastrophe-subtitle" data-i18n="catastrophe_subtitle">Active major disasters worldwide (last 30 days)</div>
 
                 <!-- Legend -->
                 <div class="catastrophe-legend">
                     <div class="legend-row">
-                        <span class="legend-label">Severity:</span>
-                        <span class="legend-item"><span class="catastrophe-badge red">Red</span> Emergency</span>
-                        <span class="legend-item"><span class="catastrophe-badge orange">Orange</span> Warning</span>
-                        <span class="legend-item"><span class="catastrophe-badge green">Green</span> Advisory</span>
+                        <span class="legend-label" data-i18n="severity">Severity:</span>
+                        <span class="legend-item"><span class="catastrophe-badge red" data-i18n="level_red">Red</span> <span data-i18n="emergency">Emergency</span></span>
+                        <span class="legend-item"><span class="catastrophe-badge orange" data-i18n="level_orange">Orange</span> <span data-i18n="warning">Warning</span></span>
+                        <span class="legend-item"><span class="catastrophe-badge green" data-i18n="level_green">Green</span> <span data-i18n="advisory">Advisory</span></span>
                     </div>
                     <div class="legend-row">
-                        <span class="legend-label">Types:</span>
-                        <span class="legend-item">🌋 Earthquake</span>
-                        <span class="legend-item">🌊 Flood</span>
-                        <span class="legend-item">🌀 Cyclone</span>
-                        <span class="legend-item">🌵 Drought</span>
-                        <span class="legend-item">🔥 Wildfire</span>
-                        <span class="legend-item">⚠️ Other</span>
+                        <span class="legend-label" data-i18n="types">Types:</span>
+                        <span class="legend-item">🌋 <span data-i18n="dis_earthquake">Earthquake</span></span>
+                        <span class="legend-item">🌊 <span data-i18n="dis_flood">Flood</span></span>
+                        <span class="legend-item">🌀 <span data-i18n="dis_cyclone">Cyclone</span></span>
+                        <span class="legend-item">🌵 <span data-i18n="dis_drought">Drought</span></span>
+                        <span class="legend-item">🔥 <span data-i18n="dis_wildfire">Wildfire</span></span>
+                        <span class="legend-item">⚠️ <span data-i18n="dis_other">Other</span></span>
                     </div>
                 </div>
 
@@ -366,7 +371,7 @@
 
             <!-- EARTH SPHERE -->
             <section class="earth-section" id="section-globe">
-                <div class="forecast-title">OUR PLANET</div>
+                <div class="forecast-title" data-i18n="our_planet">OUR PLANET</div>
 
                 <div class="earth-layout">
 
@@ -378,62 +383,62 @@
                             </div>
                         </div>
                         <div class="earth-controls">
-                            <button id="toggle-clouds" class="earth-toggle" type="button" title="Toggle cloud layer">☁️ Clouds</button>
-                            <button id="toggle-stars" class="earth-toggle" type="button" title="Toggle stars">✨ Stars</button>
-                            <button id="toggle-lock" class="earth-toggle" type="button" title="Lock globe on searched city">🔓 Auto-rotate</button>
+                            <button id="toggle-clouds" class="earth-toggle" type="button" title="Toggle cloud layer" data-i18n-title="globe_clouds_title" data-i18n="globe_clouds">☁️ Clouds</button>
+                            <button id="toggle-stars" class="earth-toggle" type="button" title="Toggle stars" data-i18n-title="globe_stars_title" data-i18n="globe_stars">✨ Stars</button>
+                            <button id="toggle-lock" class="earth-toggle" type="button" title="Lock globe on searched city" data-i18n-title="globe_lock_title" data-i18n-init="globe_rotate">🔓 Auto-rotate</button>
                         </div>
-                        <div class="earth-caption" id="earth-clock">Loading Earth view...</div>
+                        <div class="earth-caption" id="earth-clock" data-i18n-init="globe_loading">Loading Earth view...</div>
                     </div>
 
                     <!-- Info panel side -->
                     <div class="earth-info-panel">
                         <div class="earth-info-title">
                             <span class="earth-info-pin">📍</span>
-                            <span id="ei-name">Search a location</span>
+                            <span id="ei-name" data-i18n-init="search_a_location">Search a location</span>
                         </div>
 
                         <div class="earth-info-row">
-                            <span class="ei-label">🧭 Coordinates</span>
+                            <span class="ei-label" data-i18n="coordinates">🧭 Coordinates</span>
                             <span class="ei-value" id="ei-coords">--</span>
                         </div>
 
                         <div class="earth-info-row">
-                            <span class="ei-label">🕒 Local time</span>
+                            <span class="ei-label" data-i18n="local_time">🕒 Local time</span>
                             <span class="ei-value ei-clock" id="ei-time">--:--:--</span>
                         </div>
 
                         <div class="earth-info-row">
-                            <span class="ei-label">🌍 Timezone</span>
+                            <span class="ei-label" data-i18n="timezone">🌍 Timezone</span>
                             <span class="ei-value" id="ei-tz">--</span>
                         </div>
 
                         <div class="earth-info-row">
-                            <span class="ei-label">🌡️ Temperature</span>
+                            <span class="ei-label" data-i18n="temperature">🌡️ Temperature</span>
                             <span class="ei-value" id="ei-temp">--</span>
                         </div>
 
                         <div class="earth-info-row">
-                            <span class="ei-label">🌤️ Condition</span>
+                            <span class="ei-label" data-i18n="condition">🌤️ Condition</span>
                             <span class="ei-value" id="ei-condition">--</span>
                         </div>
 
                         <div class="earth-info-row">
-                            <span class="ei-label">🌅 Sunrise</span>
+                            <span class="ei-label" data-i18n="sunrise_row">🌅 Sunrise</span>
                             <span class="ei-value" id="ei-sunrise">--:--</span>
                         </div>
 
                         <div class="earth-info-row">
-                            <span class="ei-label">🌇 Sunset</span>
+                            <span class="ei-label" data-i18n="sunset_row">🌇 Sunset</span>
                             <span class="ei-value" id="ei-sunset">--:--</span>
                         </div>
 
-                        <button id="earth-save-btn" class="earth-save-btn" type="button">♡ Save this place</button>
+                        <button id="earth-save-btn" class="earth-save-btn" type="button" data-i18n-init="save_this_place">♡ Save this place</button>
 
                         <button id="earth-share-btn" class="earth-save-btn earth-share-btn" type="button">
                             <svg class="fb-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
                                 <path fill="currentColor" d="M14 9V5.5L21 12l-7 6.5V15c-4.5 0-7.5 1-9.5 4.5C5.5 13 8.5 9.5 14 9z"/>
                             </svg>
-                            <span>Share this place</span>
+                            <span data-i18n="share_this_place">Share this place</span>
                         </button>
                     </div>
 
@@ -443,13 +448,13 @@
         </div>
 
         <!-- FOOTER -->
-        <div class="footer">Powered by A Neckrone8x Production</div>
+        <div class="footer" data-i18n="footer">Powered by A Neckrone8x Production</div>
     </div>
 
     <!-- SHARE MENU -->
     <div id="share-menu-overlay" class="share-menu-overlay">
         <div class="share-menu">
-            <h3>Share this weather</h3>
+            <h3 data-i18n="share_title">Share this weather</h3>
             <div class="share-menu-sub" id="share-preview">Loading...</div>
 
             <div class="share-menu-grid">
@@ -487,69 +492,69 @@
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2" fill="none" stroke="#fbbf24" stroke-width="2"/>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" fill="none" stroke="#fbbf24" stroke-width="2"/>
                     </svg>
-                    <span>Copy text</span>
+                    <span data-i18n="copy_text">Copy text</span>
                 </button>
 
                 <button class="share-option native" data-share="native" id="share-native-btn" type="button" style="display:none;">
                     <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
                         <path fill="none" stroke="#f472b6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8M16 6l-4-4-4 4M12 2v13"/>
                     </svg>
-                    <span>More…</span>
+                    <span data-i18n="more">More…</span>
                 </button>
 
                 <button class="share-option qr" data-share="qr" type="button">
                     <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
                         <path fill="#a78bfa" d="M3 3h7v7H3V3zm2 2v3h3V5H5zm9-2h7v7h-7V3zm2 2v3h3V5h-3zM3 14h7v7H3v-7zm2 2v3h3v-3H5zm11-2h2v2h-2v-2zm3 0h2v2h-2v-2zm-3 3h2v2h-2v-2zm3 0h2v2h-2v-2zm-3 3h2v2h-2v-2zm3 0h2v2h-2v-2z"/>
                     </svg>
-                    <span>QR Code</span>
+                    <span data-i18n="qr_code">QR Code</span>
                 </button>
 
             </div>
 
-            <button class="share-close" type="button" id="share-close">Cancel</button>
+            <button class="share-close" type="button" id="share-close" data-i18n="cancel">Cancel</button>
         </div>
     </div>
 
     <!-- QR CODE MODAL -->
     <div id="qr-overlay" class="qr-overlay">
         <div class="qr-modal">
-            <button id="qr-close" class="qr-close-btn" type="button" aria-label="Close">✕</button>
-            <h3>Scan to open 8X Weather</h3>
-            <p class="qr-sub">Point your phone camera at this code to open the app</p>
+            <button id="qr-close" class="qr-close-btn" type="button" aria-label="Close" data-i18n-aria="close">✕</button>
+            <h3 data-i18n="qr_title">Scan to open 8X Weather</h3>
+            <p class="qr-sub" data-i18n="qr_sub">Point your phone camera at this code to open the app</p>
             <div id="qr-code" class="qr-code"></div>
-            <p class="qr-hint">📱 On iPhone: tap Share → Add to Home Screen<br>🤖 On Android: tap ⋮ → Install app</p>
-            <button id="qr-copy-url" class="qr-copy-btn" type="button">📋 Copy link</button>
+            <p class="qr-hint"><span data-i18n="qr_hint_iphone">📱 On iPhone: tap Share → Add to Home Screen</span><br><span data-i18n="qr_hint_android">🤖 On Android: tap ⋮ → Install app</span></p>
+            <button id="qr-copy-url" class="qr-copy-btn" type="button" data-i18n="copy_link">📋 Copy link</button>
         </div>
     </div>
 
     <!-- FEEDBACK FLOATING BUTTON -->
-    <button id="feedback-btn" class="feedback-btn" type="button" title="Send feedback">💬</button>
+    <button id="feedback-btn" class="feedback-btn" type="button" title="Send feedback" data-i18n-title="feedback_open" data-i18n-aria="feedback_open">💬</button>
 
     <!-- FEEDBACK MODAL -->
     <div id="feedback-overlay" class="feedback-overlay">
         <div class="feedback-modal">
-            <button id="feedback-close" class="feedback-close-btn" type="button" aria-label="Close">✕</button>
-            <h3>Send Feedback</h3>
-            <p class="feedback-sub">Help us improve the app — what's on your mind?</p>
+            <button id="feedback-close" class="feedback-close-btn" type="button" aria-label="Close" data-i18n-aria="close">✕</button>
+            <h3 data-i18n="feedback_title">Send Feedback</h3>
+            <p class="feedback-sub" data-i18n="feedback_sub">Help us improve the app — what's on your mind?</p>
 
             <div class="feedback-categories">
-                <button class="fb-cat" data-cat="bug" type="button">🐛 Bug</button>
-                <button class="fb-cat active" data-cat="general" type="button">💬 General</button>
-                <button class="fb-cat" data-cat="feature" type="button">💡 Feature</button>
+                <button class="fb-cat" data-cat="bug" type="button" data-i18n="fb_bug">🐛 Bug</button>
+                <button class="fb-cat active" data-cat="general" type="button" data-i18n="fb_general">💬 General</button>
+                <button class="fb-cat" data-cat="feature" type="button" data-i18n="fb_feature">💡 Feature</button>
             </div>
 
-            <textarea id="feedback-message" class="feedback-input" placeholder="Tell us what happened, or what you'd like to see..." maxlength="1000"></textarea>
+            <textarea id="feedback-message" class="feedback-input" placeholder="Tell us what happened, or what you'd like to see..." data-i18n-placeholder="fb_message" maxlength="1000"></textarea>
 
-            <input id="feedback-email" class="feedback-input" type="email" placeholder="Email (optional — for a reply)" maxlength="120">
+            <input id="feedback-email" class="feedback-input" type="email" placeholder="Email (optional — for a reply)" data-i18n-placeholder="fb_email" maxlength="120">
 
-            <button id="feedback-submit" class="feedback-submit-btn" type="button">Send Feedback</button>
+            <button id="feedback-submit" class="feedback-submit-btn" type="button" data-i18n-init="feedback_title">Send Feedback</button>
         </div>
     </div>
 
     <div id="toast" class="toast"></div>
 
     <!-- BACK TO TOP BUTTON -->
-    <button id="back-to-top" class="back-to-top" type="button" title="Back to top">↑</button>
+    <button id="back-to-top" class="back-to-top" type="button" title="Back to top" data-i18n-title="back_to_top" data-i18n-aria="back_to_top">↑</button>
 
     
 
@@ -565,7 +570,7 @@
     <!-- Mkuu AI helper (shared with Neckrone8x Stories) -->
     <link rel="stylesheet" href="/static/mkuu-helper.css?v=2">
     <script src="/static/mkuu-weather-context.js?v=2"></script>
-    <script src="/static/mkuu-helper.js?v=2" defer
+    <script src="/static/mkuu-helper.js?v=3" defer
             data-api="https://mkuu.neckrone8x.co.ke"
             data-site="weather"
             data-subtitle="Weather helper"
@@ -573,6 +578,13 @@
             data-welcome="Niaje! I am Mkuu. Ask me about the weather here: rain, what to wear, or the best time to go out."
             data-chips="Will it rain today?|What should I wear?|Best time to go out this week?"
             data-link-origins="https://stories.neckrone8x.co.ke"></script>
+    <script>
+        // Before the (deferred) widget starts: its labels, greeting and
+        // suggestions in the chosen language, and the language note for Mkuu.
+        if (typeof prepareMkuuLanguage === "function") {
+            prepareMkuuLanguage(document.querySelector("script[data-site='weather']"));
+        }
+    </script>
 
 </body>
 

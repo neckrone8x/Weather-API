@@ -1,10 +1,26 @@
 /* =========================================================
+   STORAGE — never let blocked storage (private mode, settings) stop the page
+========================================================= */
+function storageGet(key) {
+    try { return localStorage.getItem(key); } catch { return null; }
+}
+function storageSet(key, value) {
+    try { localStorage.setItem(key, value); return true; } catch { return false; }
+}
+function storageJson(key, fallback) {
+    try {
+        const v = JSON.parse(storageGet(key) || "null");
+        return v === null ? fallback : v;
+    } catch { return fallback; }
+}
+
+/* =========================================================
    GLOBAL STATE
 ========================================================= */
 let currentLocation = null;
 let selectedTimezoneOffset = 0;
 
-let themeMode = localStorage.getItem("weatherTheme") || "auto";
+let themeMode = ["auto", "light", "dark"].includes(storageGet("weatherTheme")) ? storageGet("weatherTheme") : "auto";
 
 let currentSunrise = null;
 let currentSunset = null;
@@ -16,9 +32,9 @@ window._lastForecastData = null;
 let autoRefreshTimer = null;
 const AUTO_REFRESH_MS = 5 * 60 * 1000;   // 5 minutes
 window._loadedLocation = null;
-let savedLocations = JSON.parse(localStorage.getItem("weatherSavedLocations") || "[]");
+let savedLocations = (() => { const v = storageJson("weatherSavedLocations", []); return Array.isArray(v) ? v : []; })();
 
-let unitMode = localStorage.getItem("weatherUnit") || "metric";
+let unitMode = storageGet("weatherUnit") === "imperial" ? "imperial" : "metric";
 
 
 /* =========================================================
@@ -45,6 +61,676 @@ function safeHttpUrl(url) {
 
 
 /* =========================================================
+   LANGUAGE — English / Kiswahili
+   Every text a visitor sees is in I18N, one entry per key with en and sw.
+   t(key, {name: value}) fills in {name}; a missing sw entry falls back to
+   English. The template marks its texts with data-i18n (text),
+   data-i18n-placeholder, data-i18n-title and data-i18n-aria.
+========================================================= */
+const LANG_STORAGE_KEY = "weatherLang";
+const LANGS = ["en", "sw"];
+
+const I18N = {
+    // --- header, search, buttons ---
+    lang_switch:        { en: "Language", sw: "Lugha" },
+    unit_toggle:        { en: "Toggle °C/°F", sw: "Badili °C/°F" },
+    refresh:            { en: "Refresh weather", sw: "Onyesha hali ya hewa upya" },
+    theme_auto:         { en: "Theme: Auto (follows sun) — click for Light", sw: "Mandhari: Otomatiki (kufuata jua) — gusa kwa Mwanga" },
+    theme_light:        { en: "Theme: Light — click for Dark", sw: "Mandhari: Mwanga — gusa kwa Giza" },
+    theme_dark:         { en: "Theme: Dark — click for Auto", sw: "Mandhari: Giza — gusa kwa Otomatiki" },
+    search_placeholder: { en: "Search city or place...", sw: "Tafuta mji au mahali..." },
+    search:             { en: "Search", sw: "Tafuta" },
+    clear_search:       { en: "Clear search", sw: "Futa utafutaji" },
+    voice_lang:         { en: "Voice search language", sw: "Lugha ya kutafuta kwa sauti" },
+    voice_search:       { en: "Search by voice", sw: "Tafuta kwa sauti" },
+    voice_listening:    { en: "Listening… tap to stop", sw: "Inasikiliza… gusa kusimamisha" },
+    search_hint:        { en: "💡 For a more specific location, try:", sw: "💡 Kwa mahali mahususi zaidi, jaribu:" },
+    use_my_location:    { en: "📍 Use My Location", sw: "📍 Tumia mahali nilipo" },
+    locating:           { en: "📍 Locating...", sw: "📍 Inatafuta..." },
+    save_location:      { en: "♡ Save Location", sw: "♡ Hifadhi mahali" },
+    save_location_title:{ en: "Save this location", sw: "Hifadhi mahali hapa" },
+    saved:              { en: "♥ Saved", sw: "♥ Pamehifadhiwa" },
+    share:              { en: "Share", sw: "Shiriki" },
+    close:              { en: "Close", sw: "Funga" },
+    back_to_top:        { en: "Back to top", sw: "Rudi juu" },
+    footer:             { en: "Powered by A Neckrone8x Production", sw: "Imetengenezwa na Neckrone8x Production" },
+
+    // --- quick nav ---
+    nav_now:      { en: "Now", sw: "Sasa" },
+    nav_hourly:   { en: "Hourly", sw: "Kwa saa" },
+    nav_radar:    { en: "Radar", sw: "Rada" },
+    nav_5day:     { en: "5-Day", sw: "Siku 5" },
+    nav_calendar: { en: "Calendar", sw: "Kalenda" },
+    nav_cities:   { en: "Cities", sw: "Miji" },
+    nav_alerts:   { en: "Alerts", sw: "Tahadhari" },
+    nav_globe:    { en: "Globe", sw: "Dunia" },
+
+    // --- current weather card ---
+    loading:              { en: "Loading...", sw: "Inapakia..." },
+    loading_date:         { en: "Loading date...", sw: "Inapakia tarehe..." },
+    loading_weather:      { en: "Loading weather...", sw: "Inapakia hali ya hewa..." },
+    loading_local:        { en: "Loading your local weather...", sw: "Inapakia hali ya hewa ya hapo ulipo..." },
+    switch_cities:        { en: "Switch cities", sw: "Badili mji" },
+    prev_city:            { en: "Previous saved city", sw: "Mji uliohifadhiwa uliotangulia" },
+    next_city:            { en: "Next saved city", sw: "Mji uliohifadhiwa unaofuata" },
+    what_to_wear:         { en: "WHAT TO WEAR TODAY", sw: "UVAE NINI LEO" },
+    feels_like:           { en: "FEELS LIKE", sw: "INAHISI KAMA" },
+    humidity:             { en: "HUMIDITY", sw: "UNYEVU" },
+    wind:                 { en: "WIND", sw: "UPEPO" },
+    clouds:               { en: "CLOUDS", sw: "MAWINGU" },
+    clouds_title:         { en: "Total sky area covered by clouds", sw: "Sehemu ya anga iliyofunikwa na mawingu" },
+    clouds_shower:        { en: "{pct}% (shower)", sw: "{pct}% (rasharasha)" },
+    sunrise:              { en: "🌅 SUNRISE", sw: "🌅 MACHEO" },
+    sunset:               { en: "🌇 SUNSET", sw: "🌇 MACHWEO" },
+    sunrise_word:         { en: "Sunrise", sw: "Macheo" },
+    sunset_word:          { en: "Sunset", sw: "Machweo" },
+    uv_index:             { en: "☀️ UV INDEX", sw: "☀️ KIWANGO CHA UV" },
+    air_quality:          { en: "😷 AIR QUALITY", sw: "😷 UBORA WA HEWA" },
+    moon:                 { en: "🌙 MOON", sw: "🌙 MWEZI" },
+    sunrise_in:           { en: "🌅 SUNRISE IN", sw: "🌅 MACHEO BAADA YA" },
+    sunset_in:            { en: "🌇 SUNSET IN", sw: "🌇 MACHWEO BAADA YA" },
+    until_sunrise:        { en: "Until sunrise", sw: "Hadi jua lichomoze" },
+    until_sunset:         { en: "Until sunset", sw: "Hadi jua litue" },
+    until_tomorrow_sunrise:{ en: "Until tomorrow's sunrise", sw: "Hadi jua lichomoze kesho" },
+    countdown_hm:         { en: "{h}h {m}m", sw: "saa {h} dk {m}" },
+    countdown_m:          { en: "{m}m", sw: "dk {m}" },
+    weather_details:      { en: "WEATHER DETAILS", sw: "MAELEZO YA HALI YA HEWA" },
+    pressure:             { en: "🌡️ PRESSURE", sw: "🌡️ SHINIKIZO LA HEWA" },
+    visibility:           { en: "👁️ VISIBILITY", sw: "👁️ MWONEKANO" },
+    wind_direction:       { en: "🌬️ WIND DIRECTION", sw: "🌬️ MWELEKEO WA UPEPO" },
+    wind_gust:            { en: "💨 WIND GUST", sw: "💨 UPEPO WA GHAFLA" },
+    now:                  { en: "Now", sw: "Sasa" },
+    unknown_location:     { en: "Unknown location", sw: "Mahali pasipojulikana" },
+    unknown:              { en: "Unknown", sw: "Haijulikani" },
+    no_advice:            { en: "No advice available", sw: "Hakuna ushauri kwa sasa" },
+
+    // --- UV and air quality levels ---
+    uv_low:       { en: "Low", sw: "Chini" },
+    uv_moderate:  { en: "Moderate", sw: "Wastani" },
+    uv_high:      { en: "High", sw: "Juu" },
+    uv_very_high: { en: "Very High", sw: "Juu sana" },
+    uv_extreme:   { en: "Extreme", sw: "Kali sana" },
+    uv_max_title: { en: "Max UV index", sw: "Kiwango cha juu cha UV" },
+    aqi_1:        { en: "Good", sw: "Nzuri" },
+    aqi_2:        { en: "Fair", sw: "Ya kuridhisha" },
+    aqi_3:        { en: "Moderate", sw: "Wastani" },
+    aqi_4:        { en: "Poor", sw: "Mbaya" },
+    aqi_5:        { en: "Very Poor", sw: "Mbaya sana" },
+
+    // --- moon phases ---
+    moon_new:             { en: "New Moon", sw: "Mwezi mchanga" },
+    moon_waxing_crescent: { en: "Waxing Crescent", sw: "Hilali inayokua" },
+    moon_first_quarter:   { en: "First Quarter", sw: "Robo ya kwanza" },
+    moon_waxing_gibbous:  { en: "Waxing Gibbous", sw: "Mwezi unaokua" },
+    moon_full:            { en: "Full Moon", sw: "Mwezi mpevu" },
+    moon_waning_gibbous:  { en: "Waning Gibbous", sw: "Mwezi unaopungua" },
+    moon_last_quarter:    { en: "Last Quarter", sw: "Robo ya mwisho" },
+    moon_waning_crescent: { en: "Waning Crescent", sw: "Hilali inayopungua" },
+    moon_title:           { en: "{name} — {pct}% illuminated", sw: "{name} — {pct}% inang'aa" },
+
+    // --- weather conditions (by OpenWeatherMap id) ---
+    cond_sunny:         { en: "Sunny", sw: "Anga safi" },
+    cond_partly_cloudy: { en: "Partly cloudy", sw: "Mawingu kiasi" },
+    cond_scattered:     { en: "Scattered clouds", sw: "Mawingu yaliyotawanyika" },
+    cond_broken:        { en: "Broken clouds", sw: "Mawingu mengi" },
+    cond_overcast:      { en: "Overcast", sw: "Mawingu mazito" },
+    cond_thunder:       { en: "Thunderstorm", sw: "Radi na mvua" },
+    cond_drizzle:       { en: "Drizzle", sw: "Manyunyu" },
+    cond_light_rain:    { en: "Light rain", sw: "Mvua nyepesi" },
+    cond_rain:          { en: "Rain", sw: "Mvua" },
+    cond_heavy_rain:    { en: "Heavy rain", sw: "Mvua kubwa" },
+    cond_freezing_rain: { en: "Freezing rain", sw: "Mvua ya barafu" },
+    cond_snow:          { en: "Snow", sw: "Theluji" },
+    cond_sleet:         { en: "Sleet", sw: "Theluji na mvua" },
+    cond_fog:           { en: "Foggy", sw: "Ukungu" },
+    cond_smoke:         { en: "Smoky", sw: "Moshi" },
+    cond_dust:          { en: "Dusty", sw: "Vumbi" },
+    cond_ash:           { en: "Volcanic ash", sw: "Majivu ya volkano" },
+    cond_squall:        { en: "Squalls", sw: "Upepo mkali" },
+    cond_tornado:       { en: "Tornado", sw: "Kimbunga" },
+    cond_unknown:       { en: "Unknown", sw: "Haijulikani" },
+
+    // --- compass (the report and the wind direction tile) ---
+    compass:      { en: ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+                         "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"],
+                    sw: ["kaskazini", "kaskazini-mashariki", "kaskazini-mashariki", "kaskazini-mashariki",
+                         "mashariki", "kusini-mashariki", "kusini-mashariki", "kusini-mashariki",
+                         "kusini", "kusini-magharibi", "kusini-magharibi", "kusini-magharibi",
+                         "magharibi", "kaskazini-magharibi", "kaskazini-magharibi", "kaskazini-magharibi"] },
+
+    // --- the sentence under the temperature ---
+    report_now:          { en: "Currently {temp} with {cond}.", sw: "Kwa sasa ni {temp}, {cond}." },
+    report_warmer:       { en: " It feels warmer at {temp}.", sw: " Inahisi joto zaidi, kama {temp}." },
+    report_cooler:       { en: " It feels cooler at {temp}.", sw: " Inahisi baridi zaidi, kama {temp}." },
+    report_humidity:     { en: " Humidity is at {pct}%", sw: " Unyevu ni {pct}%" },
+    report_wind:         { en: " and wind is blowing at {speed}", sw: " na upepo unavuma kwa {speed}" },
+    report_wind_from:    { en: " from the {dir} ({deg}°)", sw: " kutoka {dir} ({deg}°)" },
+    report_clouds:       { en: " Cloud cover is around {pct}%.", sw: " Mawingu yamefunika takriban {pct}% ya anga." },
+    report_clear:        { en: " Skies are clear.", sw: " Anga ni safi." },
+    report_vis_low:      { en: " Visibility is reduced to {km} km.", sw: " Mwonekano umepungua hadi km {km}." },
+    report_vis_high:     { en: " Visibility is excellent at {km} km.", sw: " Mwonekano ni mzuri sana, km {km}." },
+
+    // --- what to wear ---
+    wear_thunder:     { en: "Stay indoors if possible — thunderstorms nearby", sw: "Kaa ndani ukiweza — kuna radi karibu" },
+    wear_snow:        { en: "Heavy winter coat, gloves, and waterproof boots", sw: "Koti zito la baridi, glavu na buti zisizoingiza maji" },
+    wear_rain_hot:    { en: "Rainy — light waterproof clothes and an umbrella", sw: "Mvua — nguo nyepesi zisizoingiza maji na mwavuli" },
+    wear_rain_mild:   { en: "Rainy — waterproof jacket and umbrella", sw: "Mvua — koti la mvua na mwavuli" },
+    wear_rain_cold:   { en: "Cold and rainy — raincoat and boots", sw: "Baridi na mvua — koti la mvua na buti" },
+    wear_light_hot:   { en: "Light rain — t-shirt with an umbrella", sw: "Mvua nyepesi — fulana na mwavuli" },
+    wear_light_mild:  { en: "Light rain — jacket and umbrella", sw: "Mvua nyepesi — jaketi na mwavuli" },
+    wear_light_cold:  { en: "Cold and damp — warm coat with umbrella", sw: "Baridi na unyevu — koti zito na mwavuli" },
+    wear_soon_hot:    { en: "Light clothes + bring an umbrella — rain coming soon", sw: "Nguo nyepesi + beba mwavuli — mvua inakuja hivi karibuni" },
+    wear_soon_mild:   { en: "Light jacket + umbrella — rain in the next few hours", sw: "Jaketi jepesi + mwavuli — mvua ndani ya saa chache" },
+    wear_soon_cold:   { en: "Warm coat + umbrella — cold rain on the way", sw: "Koti zito + mwavuli — mvua ya baridi inakuja" },
+    wear_30:          { en: "Shorts, t-shirt, and sun protection — very hot day", sw: "Kaptula, fulana na kinga ya jua — siku ya joto kali" },
+    wear_25:          { en: "Light t-shirt and shorts or jeans — warm day", sw: "Fulana nyepesi na kaptula au jinzi — siku ya joto" },
+    wear_20:          { en: "T-shirt and jeans — comfortable day", sw: "Fulana na jinzi — siku nzuri" },
+    wear_15:          { en: "Light jacket or long sleeves recommended", sw: "Jaketi jepesi au nguo za mikono mirefu" },
+    wear_10:          { en: "Sweater or hoodie recommended", sw: "Sweta au koti lenye kofia" },
+    wear_5:           { en: "Warm coat and long pants", sw: "Koti zito na suruali ndefu" },
+    wear_cold:        { en: "Heavy coat, scarf, and warm layers", sw: "Koti zito, skafu na nguo nyingi za joto" },
+
+    // --- saved-data bar, errors, status ---
+    status_failed:     { en: "Couldn't load the weather right now.", sw: "Imeshindikana kupakia hali ya hewa kwa sasa." },
+    status_saved:      { en: "Showing saved data from {time}", sw: "Inaonyesha data iliyohifadhiwa ya {time}" },
+    status_updating:   { en: " · updating…", sw: " · inasasisha…" },
+    earlier:           { en: "earlier", sw: "awali" },
+    retry:             { en: "Retry", sw: "Jaribu tena" },
+    retrying:          { en: "Retrying…", sw: "Inajaribu tena…" },
+    city_not_found:    { en: "City not found. Please try again.", sw: "Mji haujapatikana. Tafadhali jaribu tena." },
+    weather_unavailable_title: { en: "Weather unavailable", sw: "Hali ya hewa haipatikani" },
+    weather_unavailable: { en: "Weather is temporarily unavailable. Please try again in a few minutes.",
+                           sw: "Hali ya hewa haipatikani kwa muda. Tafadhali jaribu tena baada ya dakika chache." },
+    search_unavailable:  { en: "City search is temporarily unavailable. Please try again in a few minutes.",
+                           sw: "Utafutaji wa miji haupatikani kwa muda. Tafadhali jaribu tena baada ya dakika chache." },
+    rate_limited:        { en: "Too many requests from your network right now. Please wait a minute, then tap Retry.",
+                           sw: "Maombi ni mengi mno kutoka mtandao wako sasa hivi. Tafadhali subiri dakika moja, kisha gusa Jaribu tena." },
+    rate_limited_search: { en: "Too many searches from your network right now. Please wait a minute, then try again.",
+                           sw: "Utafutaji ni mwingi mno kutoka mtandao wako sasa hivi. Tafadhali subiri dakika moja, kisha ujaribu tena." },
+    search_failed:       { en: "Unable to search locations right now.", sw: "Imeshindikana kutafuta maeneo kwa sasa." },
+    load_failed:         { en: "Unable to load weather.", sw: "Imeshindikana kupakia hali ya hewa." },
+    load_local_failed:   { en: "Unable to load your local weather.", sw: "Imeshindikana kupakia hali ya hewa ya hapo ulipo." },
+    invalid_coords:      { en: "Invalid location coordinates.", sw: "Viwianishi vya mahali si sahihi." },
+    hourly_unavailable:  { en: "Hourly forecast unavailable.", sw: "Utabiri wa kila saa haupatikani." },
+    forecast_unavailable:{ en: "Forecast unavailable.", sw: "Utabiri haupatikani." },
+    choose_location:     { en: "📍 Choose your location", sw: "📍 Chagua mahali" },
+    choose_location_sub: { en: "Select a location below to view its weather.", sw: "Chagua mahali hapa chini ili kuona hali yake ya hewa." },
+
+    // --- my location ---
+    location_failed:     { en: "Couldn't find your location. Try searching for your city.", sw: "Imeshindikana kupata mahali ulipo. Jaribu kutafuta mji wako." },
+    finding_location:    { en: "📍 Finding your location...", sw: "📍 Inatafuta mahali ulipo..." },
+    finding_location_input: { en: "Finding your location...", sw: "Inatafuta mahali ulipo..." },
+    finding_approximate: { en: "📍 Finding an approximate location...", sw: "📍 Inatafuta mahali pa takriban..." },
+    improving_accuracy:  { en: "📡 Improving accuracy (±{m} m)...", sw: "📡 Inaboresha usahihi (±{m} m)..." },
+    approximate_note:    { en: "📍 Approximate location (from your internet connection). ", sw: "📍 Mahali pa takriban (kutoka muunganisho wako wa intaneti). " },
+    approximate_place:   { en: "Approximate location", sw: "Mahali pa takriban" },
+    search_your_city:    { en: "Search for your city", sw: "Tafuta mji wako" },
+    your_location:       { en: "Your Location", sw: "Mahali ulipo" },
+    your_location_acc:   { en: "Your Location (±{m}m)", sw: "Mahali ulipo (±{m}m)" },
+
+    // --- earthquake / weather alert banner ---
+    weather_alert:   { en: "Weather Alert", sw: "Tahadhari ya hali ya hewa" },
+    quake_title:     { en: "M{mag} earthquake", sw: "Tetemeko la ardhi M{mag}" },
+    quake_from_you:  { en: "{km} km from you", sw: "km {km} kutoka ulipo" },
+    quake_depth:     { en: "{km} km deep", sw: "kina cha km {km}" },
+    nearby:          { en: "Nearby", sw: "Karibu nawe" },
+    ago_now:         { en: "just now", sw: "sasa hivi" },
+    ago_min:         { en: "{n} min ago", sw: "dakika {n} zilizopita" },
+    ago_min_1:       { en: "1 min ago", sw: "dakika 1 iliyopita" },
+    ago_h:           { en: "{n} h ago", sw: "saa {n} zilizopita" },
+    ago_h_1:         { en: "1 h ago", sw: "saa 1 iliyopita" },
+    ago_days:        { en: "{n} days ago", sw: "siku {n} zilizopita" },
+    ago_day_1:       { en: "1 day ago", sw: "siku 1 iliyopita" },
+    dismiss:         { en: "Dismiss", sw: "Ondoa" },
+
+    // --- sections ---
+    hourly_forecast:  { en: "HOURLY FORECAST", sw: "UTABIRI WA KILA SAA" },
+    radar_title:      { en: "PRECIPITATION RADAR", sw: "RADA YA MVUA" },
+    radar_prev:       { en: "Previous frame", sw: "Picha iliyotangulia" },
+    radar_next:       { en: "Next frame", sw: "Picha inayofuata" },
+    radar_play_title: { en: "Play/Pause", sw: "Cheza/Simamisha" },
+    radar_play:       { en: "▶ Play", sw: "▶ Cheza" },
+    radar_pause:      { en: "⏸ Pause", sw: "⏸ Simamisha" },
+    radar_data:       { en: "Radar data ©", sw: "Data ya rada ©" },
+    map_credit:       { en: "Map ©", sw: "Ramani ©" },
+    forecast_5day:    { en: "5-DAY FORECAST", sw: "UTABIRI WA SIKU 5" },
+    calendar_title:   { en: "MONTHLY CALENDAR", sw: "KALENDA YA MWEZI" },
+    prev_month:       { en: "Previous month", sw: "Mwezi uliopita" },
+    next_month:       { en: "Next month", sw: "Mwezi ujao" },
+    saved_cities:     { en: "YOUR SAVED CITIES", sw: "MIJI ULIYOHIFADHI" },
+    cities_empty:     { en: "💡 Save a location with the ♡ button to see it here", sw: "💡 Hifadhi mahali kwa kitufe cha ♡ ili kupaona hapa" },
+    unavailable:      { en: "⚠️ Unavailable", sw: "⚠️ Haipatikani" },
+    feels_short:      { en: "feels {temp}", sw: "inahisi {temp}" },
+    load_place:       { en: "Load {name}", sw: "Fungua {name}" },
+    click_to_load:    { en: "Click to load {name}", sw: "Gusa kufungua {name}" },
+    this_location:    { en: "this location", sw: "mahali hapa" },
+    remove_saved:     { en: "Remove from saved", sw: "Ondoa kwenye zilizohifadhiwa" },
+    saved_location:   { en: "Saved location", sw: "Mahali palipohifadhiwa" },
+
+    // --- global disasters ---
+    catastrophe_title:    { en: "GLOBAL CATASTROPHE WATCH", sw: "MAJANGA DUNIANI" },
+    catastrophe_subtitle: { en: "Active major disasters worldwide (last 30 days)", sw: "Majanga makubwa yanayoendelea duniani (siku 30 zilizopita)" },
+    severity:         { en: "Severity:", sw: "Uzito:" },
+    level_red:        { en: "Red", sw: "Nyekundu" },
+    level_orange:     { en: "Orange", sw: "Machungwa" },
+    level_green:      { en: "Green", sw: "Kijani" },
+    emergency:        { en: "Emergency", sw: "Dharura" },
+    warning:          { en: "Warning", sw: "Onyo" },
+    advisory:         { en: "Advisory", sw: "Ushauri" },
+    types:            { en: "Types:", sw: "Aina:" },
+    dis_earthquake:   { en: "Earthquake", sw: "Tetemeko la ardhi" },
+    dis_flood:        { en: "Flood", sw: "Mafuriko" },
+    dis_cyclone:      { en: "Cyclone", sw: "Kimbunga" },
+    dis_tropical_cyclone: { en: "Tropical Cyclone", sw: "Kimbunga cha kitropiki" },
+    dis_volcano:      { en: "Volcano", sw: "Volkano" },
+    dis_drought:      { en: "Drought", sw: "Ukame" },
+    dis_wildfire:     { en: "Wildfire", sw: "Moto wa nyika" },
+    dis_other:        { en: "Other", sw: "Mengineyo" },
+    dis_disaster:     { en: "Disaster", sw: "Janga" },
+    no_disasters:     { en: "✅ No major global disasters reported in the last 30 days", sw: "✅ Hakuna majanga makubwa yaliyoripotiwa katika siku 30 zilizopita" },
+    disasters_failed: { en: "⚠️ Unable to load global alerts", sw: "⚠️ Imeshindikana kupakia tahadhari za dunia" },
+    view_report:      { en: "View report →", sw: "Tazama ripoti →" },
+
+    // --- globe panel ---
+    our_planet:       { en: "OUR PLANET", sw: "SAYARI YETU" },
+    globe_clouds:     { en: "☁️ Clouds", sw: "☁️ Mawingu" },
+    globe_clouds_title: { en: "Toggle cloud layer", sw: "Onyesha/ficha mawingu" },
+    globe_stars:      { en: "✨ Stars", sw: "✨ Nyota" },
+    globe_stars_title:{ en: "Toggle stars", sw: "Onyesha/ficha nyota" },
+    globe_rotate:     { en: "🔓 Auto-rotate", sw: "🔓 Zungusha" },
+    globe_lock_title: { en: "Lock globe on searched city", sw: "Funga dunia kwenye mji uliotafutwa" },
+    globe_loading:    { en: "Loading Earth view...", sw: "Inapakia picha ya dunia..." },
+    search_a_location:{ en: "Search a location", sw: "Tafuta mahali" },
+    coordinates:      { en: "🧭 Coordinates", sw: "🧭 Viwianishi" },
+    local_time:       { en: "🕒 Local time", sw: "🕒 Saa ya huko" },
+    timezone:         { en: "🌍 Timezone", sw: "🌍 Ukanda wa saa" },
+    temperature:      { en: "🌡️ Temperature", sw: "🌡️ Halijoto" },
+    condition:        { en: "🌤️ Condition", sw: "🌤️ Hali" },
+    sunrise_row:      { en: "🌅 Sunrise", sw: "🌅 Macheo" },
+    sunset_row:       { en: "🌇 Sunset", sw: "🌇 Machweo" },
+    save_this_place:  { en: "♡ Save this place", sw: "♡ Hifadhi mahali hapa" },
+    globe_locked:     { en: "🔒 Locked on city", sw: "🔒 Imefungwa kwenye mji" },
+    globe_caption:    { en: "🕒 UTC {time}  •  Drag to rotate · Scroll/pinch to zoom · Click to load weather",
+                        sw: "🕒 UTC {time}  •  Buruta kuzungusha · Sogeza/bana kukuza · Gusa kupata hali ya hewa" },
+    globe_loading_at: { en: "📍 Loading weather at {lat}°, {lon}°", sw: "📍 Inapakia hali ya hewa ya {lat}°, {lon}°" },
+    globe_point:      { en: "Point ({lat}, {lon})", sw: "Sehemu ({lat}, {lon})" },
+    share_this_place: { en: "Share this place", sw: "Shiriki mahali hapa" },
+
+    // --- share, QR ---
+    share_title:      { en: "Share this weather", sw: "Shiriki hali hii ya hewa" },
+    copy_text:        { en: "Copy text", sw: "Nakili maandishi" },
+    more:             { en: "More…", sw: "Zaidi…" },
+    qr_code:          { en: "QR Code", sw: "Msimbo wa QR" },
+    cancel:           { en: "Cancel", sw: "Ghairi" },
+    qr_title:         { en: "Scan to open 8X Weather", sw: "Changanua ili kufungua 8X Weather" },
+    qr_sub:           { en: "Point your phone camera at this code to open the app", sw: "Elekeza kamera ya simu yako kwenye msimbo huu ili kufungua programu" },
+    qr_hint_iphone:   { en: "📱 On iPhone: tap Share → Add to Home Screen", sw: "📱 Kwenye iPhone: gusa Share → Add to Home Screen" },
+    qr_hint_android:  { en: "🤖 On Android: tap ⋮ → Install app", sw: "🤖 Kwenye Android: gusa ⋮ → Install app" },
+    copy_link:        { en: "📋 Copy link", sw: "📋 Nakili kiungo" },
+    qr_failed:        { en: "QR library failed to load", sw: "Imeshindikana kupakia QR" },
+    share_feels:      { en: "Feels like {temp}", sw: "Inahisi kama {temp}" },
+    share_humidity:   { en: "Humidity {pct}%", sw: "Unyevu {pct}%" },
+    share_wind:       { en: "Wind {speed}", sw: "Upepo {speed}" },
+
+    // --- toasts ---
+    toast_updated:       { en: "✅ Weather updated", sw: "✅ Hali ya hewa imesasishwa" },
+    toast_update_saved:  { en: "⚠️ Couldn't update — showing saved data", sw: "⚠️ Imeshindikana kusasisha — inaonyesha data iliyohifadhiwa" },
+    toast_refresh_failed:{ en: "❌ Refresh failed", sw: "❌ Kusasisha kumeshindikana" },
+    toast_link_copied:   { en: "✅ Link copied", sw: "✅ Kiungo kimenakiliwa" },
+    toast_copy_failed:   { en: "❌ Copy failed", sw: "❌ Kunakili kumeshindikana" },
+    toast_nothing_share: { en: "No weather data to share yet.", sw: "Bado hakuna hali ya hewa ya kushiriki." },
+    toast_weather_copied:{ en: "✅ Weather copied to clipboard", sw: "✅ Hali ya hewa imenakiliwa" },
+    toast_copied:        { en: "✅ Copied", sw: "✅ Imenakiliwa" },
+    toast_write_more:    { en: "Please write a bit more (5+ chars)", sw: "Tafadhali andika zaidi kidogo (herufi 5 au zaidi)" },
+    toast_thanks:        { en: "✅ Thank you for your feedback!", sw: "✅ Asante kwa maoni yako!" },
+    toast_mic_denied:    { en: "🎤 Microphone access denied", sw: "🎤 Ruhusa ya maikrofoni imekataliwa" },
+    toast_no_speech:     { en: "🎤 Didn't catch that — try again", sw: "🎤 Sikusikia vizuri — jaribu tena" },
+    toast_no_mic:        { en: "🎤 No microphone found", sw: "🎤 Hakuna maikrofoni" },
+    toast_voice_network: { en: "🎤 Network error — check connection", sw: "🎤 Hitilafu ya mtandao — angalia muunganisho" },
+    toast_voice_failed:  { en: "🎤 Voice search failed", sw: "🎤 Kutafuta kwa sauti kumeshindikana" },
+    toast_voice_lang:    { en: "🎤 Language: {lang}", sw: "🎤 Lugha: {lang}" },
+
+    // --- feedback ---
+    feedback_open:    { en: "Send feedback", sw: "Tuma maoni" },
+    feedback_title:   { en: "Send Feedback", sw: "Tuma maoni" },
+    feedback_sub:     { en: "Help us improve the app — what's on your mind?", sw: "Tusaidie kuboresha programu — una lipi akilini?" },
+    fb_bug:           { en: "🐛 Bug", sw: "🐛 Hitilafu" },
+    fb_general:       { en: "💬 General", sw: "💬 Jumla" },
+    fb_feature:       { en: "💡 Feature", sw: "💡 Wazo jipya" },
+    fb_message:       { en: "Tell us what happened, or what you'd like to see...", sw: "Tuambie kilichotokea, au ungependa kuona nini..." },
+    fb_email:         { en: "Email (optional — for a reply)", sw: "Barua pepe (si lazima — ili tukujibu)" },
+    fb_sending:       { en: "Sending...", sw: "Inatuma..." },
+
+    // --- Mkuu helper ---
+    mkuu_subtitle:    { en: "Weather helper", sw: "Msaidizi wa hali ya hewa" },
+    mkuu_placeholder: { en: "Ask about the weather…", sw: "Uliza kuhusu hali ya hewa…" },
+    mkuu_welcome:     { en: "Niaje! I am Mkuu. Ask me about the weather here: rain, what to wear, or the best time to go out.",
+                        sw: "Niaje! Mimi ni Mkuu. Niulize kuhusu hali ya hewa hapa: mvua, uvae nini, au wakati bora wa kutoka." },
+    mkuu_chips:       { en: "Will it rain today?|What should I wear?|Best time to go out this week?",
+                        sw: "Je, mvua itanyesha leo?|Nivae nini?|Wakati gani bora wa kutoka wiki hii?" },
+    mkuu_note:        { en: "Mkuu is an AI and can make mistakes. Please do not share personal details.",
+                        sw: "Mkuu ni AI na anaweza kukosea. Tafadhali usishiriki taarifa zako binafsi." },
+    mkuu_ask:         { en: "Ask Mkuu", sw: "Uliza Mkuu" },
+    mkuu_new_chat:    { en: "Start a new chat", sw: "Anza mazungumzo mapya" },
+    mkuu_message:     { en: "Your message to Mkuu", sw: "Ujumbe wako kwa Mkuu" },
+    mkuu_send:        { en: "Send", sw: "Tuma" },
+    mkuu_ask_alert:   { en: "Ask Mkuu (1 new alert)", sw: "Uliza Mkuu (tahadhari 1 mpya)" },
+    mkuu_waking:      { en: "Mkuu is waking up, one moment…", sw: "Mkuu anaamka, subiri kidogo…" },
+    mkuu_no_answer:   { en: "Mkuu could not answer that. Please try again.", sw: "Mkuu hakuweza kujibu hilo. Tafadhali jaribu tena." },
+    mkuu_empty:       { en: "I got an empty reply. Please try again.", sw: "Nimepata jibu tupu. Tafadhali jaribu tena." },
+    mkuu_offline:     { en: "I cannot reach Mkuu right now. Please check your internet and try again.",
+                        sw: "Siwezi kumfikia Mkuu kwa sasa. Tafadhali angalia intaneti yako kisha ujaribu tena." },
+    mkuu_err_429:     { en: "You are sending messages too fast. Please wait a minute.",
+                        sw: "Unatuma ujumbe haraka mno. Tafadhali subiri dakika moja." },
+    mkuu_err_503:     { en: "Mkuu has reached its limit for today. Please try again tomorrow.",
+                        sw: "Mkuu amefikia kikomo chake cha leo. Tafadhali jaribu tena kesho." },
+    mkuu_err_other:   { en: "Mkuu is having trouble right now. Please try again in a moment.",
+                        sw: "Mkuu ana tatizo kwa sasa. Tafadhali jaribu tena baada ya muda mfupi." },
+    mkuu_read_story:  { en: "Read full story", sw: "Soma hadithi yote" },
+    mkuu_story:       { en: "Story", sw: "Hadithi" },
+    mkuu_heads_up:    { en: "**Heads up:**", sw: "**Tahadhari:**" },
+    mkuu_quake_line:  { en: "a magnitude {mag} earthquake, {place}", sw: "tetemeko la ardhi la ukubwa {mag}, {place}" },
+    mkuu_ask_more:    { en: "Ask me if you want to know more.", sw: "Niulize ukitaka kujua zaidi." },
+    mkuu_alert_for:   { en: "for {place}", sw: "kwa {place}" },
+    mkuu_alert_plans: { en: "Ask me what this means for your plans.", sw: "Niulize hii inamaanisha nini kwa mipango yako." },
+
+    // --- day and month names ---
+    days:         { en: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+                    sw: ["Jumapili", "Jumatatu", "Jumanne", "Jumatano", "Alhamisi", "Ijumaa", "Jumamosi"] },
+    days_short:   { en: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+                    sw: ["Jpi", "Jtt", "Jnn", "Jtn", "Alh", "Iju", "Jmo"] },
+    months:       { en: ["January", "February", "March", "April", "May", "June",
+                         "July", "August", "September", "October", "November", "December"],
+                    sw: ["Januari", "Februari", "Machi", "Aprili", "Mei", "Juni",
+                         "Julai", "Agosti", "Septemba", "Oktoba", "Novemba", "Desemba"] },
+    months_short: { en: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+                    sw: ["Jan", "Feb", "Mac", "Apr", "Mei", "Jun", "Jul", "Ago", "Sep", "Okt", "Nov", "Des"] }
+};
+
+// For Mkuu (an AI): put first in the page context it already sends.
+const MKUU_LANGUAGE_NOTE = {
+    en: "",
+    sw: "The user chose Kiswahili. Always reply in simple, natural Kenyan Kiswahili. " +
+        "(Mtumiaji amechagua Kiswahili: jibu kwa Kiswahili rahisi.)"
+};
+
+function detectLanguage() {
+    try {
+        const saved = storageGet(LANG_STORAGE_KEY);
+        if (LANGS.includes(saved)) return saved;
+    } catch { /* storage blocked */ }
+    let nav = "";
+    try { nav = String(navigator.language || "").toLowerCase(); } catch { nav = ""; }
+    return nav.startsWith("sw") ? "sw" : "en";
+}
+
+let currentLang = detectLanguage();
+
+/* The text for key in the current language (English if sw is missing). */
+function t(key, params) {
+    const entry = I18N[key];
+    let s = entry ? (entry[currentLang] ?? entry.en) : key;
+    if (typeof s === "string" && params) {
+        s = s.replace(/\{(\w+)\}/g, (m, k) => (params[k] !== undefined && params[k] !== null ? String(params[k]) : m));
+    }
+    return s;
+}
+
+/* The page's API calls carry ?lang= so the server answers in the same
+   language (and browser / service-worker copies are per language). */
+const LANG_API_PATHS = ["/weather", "/locations", "/uv", "/air", "/reverse",
+                        "/my-location", "/local-alerts", "/global-alerts", "/feedback"];
+function withLang(url) {
+    if (typeof url !== "string" || !url.startsWith("/")) return url;
+    const path = url.split("?")[0];
+    if (!LANG_API_PATHS.some(p => path === p || path.startsWith(p + "-") || path.startsWith(p + "/"))) return url;
+    if (/[?&]lang=/.test(url)) return url;
+    return url + (url.includes("?") ? "&" : "?") + "lang=" + currentLang;
+}
+
+/* Template texts marked with data-i18n*. */
+function applyStaticTranslations(root) {
+    const scope = root || document;
+    if (!scope || typeof scope.querySelectorAll !== "function") return;
+    const set = (attr, fn) => {
+        scope.querySelectorAll(`[${attr}]`).forEach(el => fn(el, el.getAttribute(attr)));
+    };
+    set("data-i18n", (el, key) => { el.textContent = t(key); });
+    set("data-i18n-placeholder", (el, key) => { el.setAttribute("placeholder", t(key)); });
+    set("data-i18n-title", (el, key) => { el.setAttribute("title", t(key)); });
+    set("data-i18n-aria", (el, key) => { el.setAttribute("aria-label", t(key)); });
+    set("data-i18n-day", (el, i) => { el.textContent = t("days_short")[Number(i)] || el.textContent; });
+    try { document.documentElement.lang = currentLang; } catch { /* no DOM */ }
+}
+
+/* First texts of elements the page fills in later (city, buttons that change):
+   set once at start only, so a language switch never overwrites live text. */
+function applyInitialTexts() {
+    if (typeof document === "undefined" || !document.querySelectorAll) return;
+    document.querySelectorAll("[data-i18n-init]").forEach(el => {
+        el.textContent = t(el.getAttribute("data-i18n-init"));
+    });
+}
+
+function updateLanguageSwitch() {
+    document.querySelectorAll("[data-lang-choice]").forEach(btn => {
+        const on = btn.getAttribute("data-lang-choice") === currentLang;
+        btn.classList.toggle("active", on);
+        btn.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+}
+
+function setLanguage(lang) {
+    if (!LANGS.includes(lang) || lang === currentLang) return;
+    currentLang = lang;
+    try { storageSet(LANG_STORAGE_KEY, lang); } catch { /* storage blocked */ }
+    applyStaticTranslations();
+    updateLanguageSwitch();
+    rerenderForLanguage();
+    if (typeof mpTrack === "function") mpTrack("language_changed", { lang });
+}
+
+function setupLanguageSwitch() {
+    document.querySelectorAll("[data-lang-choice]").forEach(btn => {
+        btn.addEventListener("click", () => setLanguage(btn.getAttribute("data-lang-choice")));
+    });
+    updateLanguageSwitch();
+}
+
+/* Everything already on screen, again in the new language. */
+function rerenderForLanguage() {
+    applyTheme();
+    updateDateTime();
+    updateSaveButtonState();
+    const locBtn = getElement("location-button");
+    if (locBtn && !locBtn.disabled) locBtn.textContent = t("use_my_location");
+    const fbBtn = getElement("feedback-submit");
+    if (fbBtn && !fbBtn.disabled) fbBtn.textContent = t("feedback_title");
+    const play = getElement("radar-play");
+    if (play) play.textContent = radarPlayTimer ? t("radar_pause") : t("radar_play");
+
+    if (window._currentWeatherData) displayWeather(window._currentWeatherData, { saved: true, rerender: true });
+    if (window._lastForecastData) {
+        renderHourlyForecast(window._lastForecastData);
+        renderForecast(window._lastForecastData);
+    }
+    renderExtraTiles();
+    if (lastDataStatus) showDataStatus(...lastDataStatus);
+
+    // Server-made texts (e.g. the quake's place) come again in the new language.
+    if (window._lastLocalAlerts) renderSafetyBanner(window._lastLocalAlerts);
+    const loc = window._loadedLocation;
+    if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lon)) {
+        lastAlertCheck = { key: "", time: 0 };
+        checkLocationAlerts(loc.lat, loc.lon);
+    }
+    renderSavedLocations();
+    renderCatastropheWatch();
+    paintCalendar();
+    if (window.EarthGlobe && typeof window.EarthGlobe.refreshLanguage === "function") {
+        window.EarthGlobe.refreshLanguage();
+    }
+    updateMkuuLanguage();
+    try { window.dispatchEvent(new Event("mkuu:context-changed")); } catch { /* old browser */ }
+}
+
+/* Mkuu: labels before the widget starts (called from the template, right
+   after the widget's script tag), the language note in the context it sends
+   with every message, and the one-time "heads up" in Kiswahili. */
+let _mkuuWrapped = false;
+function prepareMkuuLanguage(script) {
+    try {
+        if (script && script.setAttribute) {
+            script.setAttribute("data-subtitle", t("mkuu_subtitle"));
+            script.setAttribute("data-placeholder", t("mkuu_placeholder"));
+            script.setAttribute("data-welcome", t("mkuu_welcome"));
+            script.setAttribute("data-chips", t("mkuu_chips"));
+        }
+    } catch { /* keep the template's English */ }
+    if (_mkuuWrapped) return;
+    _mkuuWrapped = true;
+    const baseContext = window.MkuuHelperContext;
+    window.MkuuHelperContext = function () {
+        const ctx = typeof baseContext === "function" ? String(baseContext() || "") : "";
+        const note = MKUU_LANGUAGE_NOTE[currentLang] || "";
+        return note ? (note + (ctx ? "\n" + ctx : "")) : ctx;
+    };
+    const baseNotice = window.MkuuHelperNotice;
+    window.MkuuHelperNotice = function () {
+        const n = typeof baseNotice === "function" ? baseNotice() : null;
+        if (!n || currentLang === "en") return n;
+        const text = mkuuNoticeText();
+        return text ? { id: n.id, text } : n;       // same id: a notice seen once stays seen
+    };
+}
+
+/* Texts for the Mkuu widget (mkuu-helper.js asks each time it shows one). For
+   the error replies English returns null, so the widget keeps its own wording
+   (which may include the Mkuu server's own explanation). */
+const MKUU_TEXT_KEYS = {
+    ask: "mkuu_ask", askAlert: "mkuu_ask_alert", newChat: "mkuu_new_chat", close: "close",
+    message: "mkuu_message", send: "mkuu_send", note: "mkuu_note", welcome: "mkuu_welcome",
+    chips: "mkuu_chips", waking: "mkuu_waking", noAnswer: "mkuu_no_answer", empty: "mkuu_empty",
+    offline: "mkuu_offline", err429: "mkuu_err_429", err503: "mkuu_err_503",
+    errOther: "mkuu_err_other", readStory: "mkuu_read_story", story: "mkuu_story"
+};
+window.MkuuHelperText = function (key) {
+    const k = MKUU_TEXT_KEYS[key];
+    if (!k) return null;
+    if (currentLang === "en" && /^err/.test(key)) return null;
+    return t(k);
+};
+
+/* The heads-up text, built from the alert data in the current language. */
+function mkuuNoticeText() {
+    const d = window._lastLocalAlerts || {};
+    const alerts = Array.isArray(d.alerts) ? d.alerts : [];
+    const quakes = Array.isArray(d.quakes) ? d.quakes : [];
+    const w = window._currentWeatherData || {};
+    const loc = w.searched_location || {};
+    const place = [loc.name || w.name || "", loc.country || (w.sys && w.sys.country) || ""].filter(Boolean).join(", ");
+    if (alerts.length) {
+        const a = alerts[0];
+        const where = place ? " " + t("mkuu_alert_for", { place }) : "";
+        return `${t("mkuu_heads_up")} ${a.event || t("weather_alert")}${where}.` +
+            (a.headline ? `\n${a.headline}` : "") + `\n${t("mkuu_alert_plans")}`;
+    }
+    if (quakes.length) {
+        const q = quakes[0];
+        const mag = Number(q.magnitude);
+        const { text } = quakeBannerText(q);
+        const rest = text.split(" · ").slice(1).join(", ");
+        return `${t("mkuu_heads_up")} ${t("mkuu_quake_line", {
+            mag: Number.isFinite(mag) ? mag.toFixed(1) : "?", place: q.place || t("nearby") })}` +
+            (rest ? `, ${rest}` : "") + `.\n${t("mkuu_ask_more")}`;
+    }
+    return "";
+}
+
+/* The widget is already on screen: change its texts in place. */
+function updateMkuuLanguage() {
+    const script = document.querySelector("script[data-site='weather']");
+    prepareMkuuLanguage(script);
+    const rootEl = document.querySelector(".mkh-root");
+    if (!rootEl) return;
+    const q = sel => rootEl.querySelector(sel);
+    const sub = q(".mkh-title small");
+    if (sub) sub.textContent = t("mkuu_subtitle");
+    const panel = q(".mkh-panel");
+    if (panel) panel.setAttribute("aria-label", "Mkuu, " + t("mkuu_subtitle"));
+    const input = q(".mkh-input");
+    if (input) {
+        input.placeholder = t("mkuu_placeholder");
+        input.setAttribute("aria-label", t("mkuu_message"));
+    }
+    const note = q(".mkh-note");
+    if (note) note.textContent = t("mkuu_note");
+    const fab = q(".mkh-fab");
+    if (fab) fab.setAttribute("aria-label", t("mkuu_ask"));
+    const send = q(".mkh-send");
+    if (send) send.setAttribute("aria-label", t("mkuu_send"));
+    const buttons = rootEl.querySelectorAll(".mkh-head .mkh-iconbtn");
+    if (buttons[0]) buttons[0].setAttribute("aria-label", t("mkuu_new_chat"));
+    if (buttons[1]) buttons[1].setAttribute("aria-label", t("close"));
+
+    // Only the welcome so far: show it in the new language.
+    const log = q(".mkh-log");
+    if (log && log.children.length === 1 && log.children[0].classList.contains("mkh-bot")) {
+        log.children[0].textContent = t("mkuu_welcome");
+    }
+    // Suggestion chips: new labels that send the new text.
+    const chips = q(".mkh-chips");
+    const form = q(".mkh-form");
+    if (chips && form && input) {
+        chips.textContent = "";
+        t("mkuu_chips").split("|").forEach(label => {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.className = "mkh-chipbtn";
+            b.textContent = label;
+            b.addEventListener("click", () => {
+                input.value = label;
+                if (typeof form.requestSubmit === "function") form.requestSubmit();
+                else form.dispatchEvent(new Event("submit", { cancelable: true }));
+            });
+            chips.appendChild(b);
+        });
+    }
+}
+
+/* fn() with English texts (e.g. a search string saved for later). */
+function inEnglish(fn) {
+    const saved = currentLang;
+    currentLang = "en";
+    try { return fn(); } finally { currentLang = saved; }
+}
+
+/* Day / month names and short dates in the current language. */
+function dayName(date, short = false) {
+    return t(short ? "days_short" : "days")[date.getDay()];
+}
+function monthName(index, short = false) {
+    return t(short ? "months_short" : "months")[index];
+}
+
+/* Placeholder names that were saved in one language, shown in the current one. */
+function displayPlaceName(name) {
+    const s = String(name || "");
+    const acc = s.match(/^(?:Your Location|Mahali ulipo) \(±(\d+)m\)$/);
+    if (acc) return t("your_location_acc", { m: acc[1] });
+    if (s === "Your Location" || s === "Mahali ulipo") return t("your_location");
+    if (s === "Approximate location" || s === "Mahali pa takriban") return t("approximate_place");
+    const pt = s.match(/^(?:Point|Sehemu) \((-?[\d.]+), (-?[\d.]+)\)$/);
+    if (pt) return t("globe_point", { lat: pt[1], lon: pt[2] });
+    return s;
+}
+
+// Before anything is drawn: <html lang> and the template's texts.
+applyStaticTranslations();
+applyInitialTexts();
+
+
+/* =========================================================
    NETWORK — every request gives up after 20 s
    (the timer keeps running while the body is read, so a reply
    that stalls half-way is cut off too; aborting a finished
@@ -55,7 +741,7 @@ const FETCH_TIMEOUT_MS = 20000;
 function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
     const controller = new AbortController();
     setTimeout(() => controller.abort(), timeoutMs);
-    return fetch(url, { ...options, signal: controller.signal });
+    return fetch(withLang(url), { ...options, signal: controller.signal });
 }
 
 /* When was this reply's data fetched, if it is a saved copy? null = it's fresh.
@@ -78,12 +764,14 @@ function savedCopyTime(response) {
 window._dataTime = null;   // when the weather on screen was fetched
 
 function formatSavedTime(ms) {
-    if (!Number.isFinite(ms) || ms <= 0) return "earlier";
+    if (!Number.isFinite(ms) || ms <= 0) return t("earlier");
     const d = new Date(ms);
-    const time = d.toLocaleTimeString("en-KE", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
     if (d.toDateString() === new Date().toDateString()) return time;
-    return `${d.toLocaleDateString("en-KE", { weekday: "short", day: "numeric", month: "short" })}, ${time}`;
+    return `${dayName(d, true)} ${d.getDate()} ${monthName(d.getMonth(), true)}, ${time}`;
 }
+
+let lastDataStatus = null;   // the bar's arguments, to redraw it in another language
 
 function getDataStatusElement() {
     let el = getElement("data-status");
@@ -104,14 +792,15 @@ function getDataStatusElement() {
 function showDataStatus(savedTime, onRetry, { updating = false } = {}) {
     const el = getDataStatusElement();
     if (!el) return;
+    lastDataStatus = [savedTime, onRetry, { updating }];
     el.textContent = "";
 
     const text = document.createElement("span");
     if (savedTime === null) {
-        text.textContent = "Couldn't load the weather right now.";
+        text.textContent = t("status_failed");
     } else {
-        text.textContent = `Showing saved data from ${formatSavedTime(savedTime)}` +
-            (updating ? " · updating…" : "");
+        text.textContent = t("status_saved", { time: formatSavedTime(savedTime) }) +
+            (updating ? t("status_updating") : "");
     }
     el.appendChild(text);
 
@@ -119,10 +808,10 @@ function showDataStatus(savedTime, onRetry, { updating = false } = {}) {
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "data-status-retry";
-        btn.textContent = "Retry";
+        btn.textContent = t("retry");
         btn.addEventListener("click", () => {
             btn.disabled = true;
-            btn.textContent = "Retrying…";
+            btn.textContent = t("retrying");
             onRetry();
         });
         el.appendChild(btn);
@@ -132,6 +821,7 @@ function showDataStatus(savedTime, onRetry, { updating = false } = {}) {
 
 function clearDataStatus() {
     const el = getElement("data-status");
+    lastDataStatus = null;
     if (el) {
         el.hidden = true;
         el.textContent = "";
@@ -148,13 +838,13 @@ const FORECAST_CACHE_KEY = "neckrone8x_forecast_cache";
 function saveWeatherToCache(weatherData, forecastData) {
     try {
         if (weatherData) {
-            localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify({
+            storageSet(WEATHER_CACHE_KEY, JSON.stringify({
                 data: weatherData,
                 time: Date.now()
             }));
         }
         if (forecastData) {
-            localStorage.setItem(FORECAST_CACHE_KEY, JSON.stringify({
+            storageSet(FORECAST_CACHE_KEY, JSON.stringify({
                 data: forecastData,
                 time: Date.now()
             }));
@@ -168,7 +858,7 @@ function saveWeatherToCache(weatherData, forecastData) {
    (Shown with a "saved data from <time>" note, so age is no reason to hide it.) */
 function loadCacheEntry(key) {
     try {
-        const entry = JSON.parse(localStorage.getItem(key) || "null");
+        const entry = JSON.parse(storageGet(key) || "null");
         return entry && entry.data ? entry : null;
     } catch { return null; }
 }
@@ -188,7 +878,7 @@ function setControlsVisibility(visible) {
 function getCountryName(countryCode) {
     if (!countryCode) return "";
     try {
-        return new Intl.DisplayNames(["en"], { type: "region" }).of(countryCode);
+        return new Intl.DisplayNames([currentLang === "sw" ? "sw" : "en", "en"], { type: "region" }).of(countryCode);
     } catch {
         return countryCode;
     }
@@ -218,18 +908,34 @@ function getWeatherIcon(weatherId, iconCode = "") {
 /* =========================================================
    CONDITION TEXT
 ========================================================= */
+function conditionKey(weatherId) {
+    const id = Number(weatherId);
+    if (id === 800) return "cond_sunny";
+    if (id === 801) return "cond_partly_cloudy";
+    if (id === 802) return "cond_scattered";
+    if (id === 803) return "cond_broken";
+    if (id === 804) return "cond_overcast";
+    if (id >= 200 && id <= 232) return "cond_thunder";
+    if (id >= 300 && id <= 321) return "cond_drizzle";
+    if (id === 500 || id === 520) return "cond_light_rain";
+    if (id === 502 || id === 503 || id === 504 || id === 522) return "cond_heavy_rain";
+    if (id === 511) return "cond_freezing_rain";
+    if (id >= 500 && id <= 531) return "cond_rain";
+    if (id >= 611 && id <= 616) return "cond_sleet";
+    if (id >= 600 && id <= 622) return "cond_snow";
+    if (id === 711) return "cond_smoke";
+    if (id === 731 || id === 751 || id === 761) return "cond_dust";
+    if (id === 762) return "cond_ash";
+    if (id === 771) return "cond_squall";
+    if (id === 781) return "cond_tornado";
+    if (id >= 701 && id <= 781) return "cond_fog";
+    return "";
+}
+
 function getConditionText(weatherId, description = "") {
-    if (weatherId === 800) return "Sunny";
-    if (weatherId === 801) return "Partly cloudy";
-    if (weatherId === 802) return "Scattered clouds";
-    if (weatherId === 803) return "Broken clouds";
-    if (weatherId === 804) return "Overcast";
-    if (weatherId >= 200 && weatherId <= 232) return "Thunderstorm";
-    if (weatherId >= 300 && weatherId <= 321) return "Drizzle";
-    if (weatherId >= 500 && weatherId <= 531) return "Rain";
-    if (weatherId >= 600 && weatherId <= 622) return "Snow";
-    if (weatherId >= 701 && weatherId <= 781) return "Foggy";
-    return description || "Unknown";
+    const key = conditionKey(weatherId);
+    if (key) return t(key);
+    return description || t("cond_unknown");
 }
 
 
@@ -238,9 +944,7 @@ function getConditionText(weatherId, description = "") {
 ========================================================= */
 function degreesToCompass(deg) {
     if (!Number.isFinite(deg)) return "";
-    const dirs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
-                  "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
-    return dirs[Math.round(deg / 22.5) % 16];
+    return t("compass")[Math.round(deg / 22.5) % 16];
 }
 
 
@@ -248,7 +952,7 @@ function degreesToCompass(deg) {
    FORMAT LOCATION
 ========================================================= */
 function formatLocation(name, state, country) {
-    let result = name || "Unknown location";
+    let result = displayPlaceName(name) || t("unknown_location");
 
     if (state) {
         const cityLower = String(name).toLowerCase().replace(/\s+county$/i, "").trim();
@@ -335,13 +1039,13 @@ function applyTheme() {
     if (btn) {
         if (themeMode === "auto") {
             btn.textContent = "🌗";
-            btn.title = "Theme: Auto (follows sun) — click for Light";
+            btn.title = t("theme_auto");
         } else if (themeMode === "light") {
             btn.textContent = "☀️";
-            btn.title = "Theme: Light — click for Dark";
+            btn.title = t("theme_light");
         } else {
             btn.textContent = "🌙";
-            btn.title = "Theme: Dark — click for Auto";
+            btn.title = t("theme_dark");
         }
     }
 }
@@ -358,7 +1062,7 @@ function cycleTheme() {
     else if (themeMode === "light") themeMode = "dark";
     else themeMode = "auto";
 
-    localStorage.setItem("weatherTheme", themeMode);
+    storageSet("weatherTheme", themeMode);
     applyTheme();
 }
 
@@ -373,7 +1077,7 @@ function updateUnitButton() {
 
 function cycleUnit() {
     unitMode = unitMode === "metric" ? "imperial" : "metric";
-    localStorage.setItem("weatherUnit", unitMode);
+    storageSet("weatherUnit", unitMode);
     updateUnitButton();
 
     if (window._currentWeatherData) {
@@ -432,10 +1136,10 @@ function setupRefreshButton() {
             clearCityCardCache();
             renderCitiesGlance();
 
-            showToast(ok ? "✅ Weather updated" : "⚠️ Couldn't update — showing saved data");
+            showToast(ok ? t("toast_updated") : t("toast_update_saved"));
         } catch (err) {
             console.error("Refresh failed:", err);
-            showToast("❌ Refresh failed");
+            showToast(t("toast_refresh_failed"));
         } finally {
             btn.classList.remove("spinning");
             btn.disabled = false;
@@ -475,12 +1179,8 @@ function updateDateTime() {
     const locationTime = new Date(utcTime + (selectedTimezoneOffset * 1000));
 
     if (dateElement) {
-        dateElement.textContent = locationTime.toLocaleDateString("en-KE", {
-            weekday: "long",
-            day: "numeric",
-            month: "long",
-            year: "numeric"
-        });
+        dateElement.textContent = `${dayName(locationTime)}, ${locationTime.getDate()} ` +
+            `${monthName(locationTime.getMonth())} ${locationTime.getFullYear()}`;
     }
     if (timeElement) {
         timeElement.textContent = locationTime.toLocaleTimeString("en-KE", {
@@ -527,7 +1227,7 @@ function getWhatToWear(data) {
     const weatherId = Number(weather.id);
 
     if (!Number.isFinite(temp)) {
-        return { icon: "👕", text: "No advice available" };
+        return { icon: "👕", text: t("no_advice") };
     }
 
     let rainSoon = false;
@@ -549,62 +1249,62 @@ function getWhatToWear(data) {
     const isSnowing = weatherId >= 600 && weatherId <= 622;
 
     if (isThunder) {
-        return { icon: "⛈️", text: "Stay indoors if possible — thunderstorms nearby" };
+        return { icon: "⛈️", text: t("wear_thunder") };
     }
 
     if (isSnowing) {
-        return { icon: "🧥", text: "Heavy winter coat, gloves, and waterproof boots" };
+        return { icon: "🧥", text: t("wear_snow") };
     }
 
     if (isHeavyRain || (isAnyRain && !isLightRain)) {
         if (temp >= 25) {
-            return { icon: "☔", text: "Rainy — light waterproof clothes and an umbrella" };
+            return { icon: "☔", text: t("wear_rain_hot") };
         } else if (temp >= 18) {
-            return { icon: "🧥", text: "Rainy — waterproof jacket and umbrella" };
+            return { icon: "🧥", text: t("wear_rain_mild") };
         } else {
-            return { icon: "🧥", text: "Cold and rainy — raincoat and boots" };
+            return { icon: "🧥", text: t("wear_rain_cold") };
         }
     }
 
     if (isLightRain) {
         if (temp >= 25) {
-            return { icon: "☔", text: "Light rain — t-shirt with an umbrella" };
+            return { icon: "☔", text: t("wear_light_hot") };
         } else if (temp >= 15) {
-            return { icon: "☔", text: "Light rain — jacket and umbrella" };
+            return { icon: "☔", text: t("wear_light_mild") };
         } else {
-            return { icon: "🧥", text: "Cold and damp — warm coat with umbrella" };
+            return { icon: "🧥", text: t("wear_light_cold") };
         }
     }
 
     if (rainSoon) {
         if (temp >= 25) {
-            return { icon: "☔", text: "Light clothes + bring an umbrella — rain coming soon" };
+            return { icon: "☔", text: t("wear_soon_hot") };
         } else if (temp >= 15) {
-            return { icon: "☔", text: "Light jacket + umbrella — rain in the next few hours" };
+            return { icon: "☔", text: t("wear_soon_mild") };
         } else {
-            return { icon: "🧥", text: "Warm coat + umbrella — cold rain on the way" };
+            return { icon: "🧥", text: t("wear_soon_cold") };
         }
     }
 
     if (temp >= 30) {
-        return { icon: "🩳", text: "Shorts, t-shirt, and sun protection — very hot day" };
+        return { icon: "🩳", text: t("wear_30") };
     }
     if (temp >= 25) {
-        return { icon: "👕", text: "Light t-shirt and shorts or jeans — warm day" };
+        return { icon: "👕", text: t("wear_25") };
     }
     if (temp >= 20) {
-        return { icon: "👕", text: "T-shirt and jeans — comfortable day" };
+        return { icon: "👕", text: t("wear_20") };
     }
     if (temp >= 15) {
-        return { icon: "🧥", text: "Light jacket or long sleeves recommended" };
+        return { icon: "🧥", text: t("wear_15") };
     }
     if (temp >= 10) {
-        return { icon: "🧥", text: "Sweater or hoodie recommended" };
+        return { icon: "🧥", text: t("wear_10") };
     }
     if (temp >= 5) {
-        return { icon: "🧥", text: "Warm coat and long pants" };
+        return { icon: "🧥", text: t("wear_5") };
     }
-    return { icon: "🧣", text: "Heavy coat, scarf, and warm layers" };
+    return { icon: "🧣", text: t("wear_cold") };
 }
 
 function renderWhatToWear(data) {
@@ -638,23 +1338,23 @@ function generateWeatherReport(data) {
     const weatherId = Number(weather.id);
     const condition = getConditionText(weatherId, weather.description);
 
-    let report = `Currently ${formatTemp(temp)}${tempUnit()} with ${condition.toLowerCase()}.`;
+    let report = t("report_now", { temp: `${formatTemp(temp)}${tempUnit()}`, cond: condition.toLowerCase() });
 
     if (Number.isFinite(feelsLike)) {
         const diff = feelsLike - temp;
         if (diff > 2) {
-            report += ` It feels warmer at ${formatTemp(feelsLike)}${tempUnit()}.`;
+            report += t("report_warmer", { temp: `${formatTemp(feelsLike)}${tempUnit()}` });
         } else if (diff < -2) {
-            report += ` It feels cooler at ${formatTemp(feelsLike)}${tempUnit()}.`;
+            report += t("report_cooler", { temp: `${formatTemp(feelsLike)}${tempUnit()}` });
         }
     }
 
-    report += ` Humidity is at ${humidity}%`;
+    report += t("report_humidity", { pct: humidity });
 
     if (Number.isFinite(windSpeed)) {
-        report += ` and wind is blowing at ${formatSpeed(windSpeed)} ${speedUnit()}`;
+        report += t("report_wind", { speed: `${formatSpeed(windSpeed)} ${speedUnit()}` });
         if (Number.isFinite(windDeg)) {
-            report += ` from the ${degreesToCompass(windDeg)} (${windDeg}°)`;
+            report += t("report_wind_from", { dir: degreesToCompass(windDeg), deg: windDeg });
         }
         report += ".";
     } else {
@@ -662,17 +1362,17 @@ function generateWeatherReport(data) {
     }
 
     if (clouds > 0) {
-        report += ` Cloud cover is around ${clouds}%.`;
+        report += t("report_clouds", { pct: clouds });
     } else {
-        report += ` Skies are clear.`;
+        report += t("report_clear");
     }
 
     if (Number.isFinite(visibility)) {
         const km = visibility / 1000;
         if (km < 5) {
-            report += ` Visibility is reduced to ${km.toFixed(1)} km.`;
+            report += t("report_vis_low", { km: km.toFixed(1) });
         } else if (km > 15) {
-            report += ` Visibility is excellent at ${km.toFixed(0)} km.`;
+            report += t("report_vis_high", { km: km.toFixed(0) });
         }
     }
 
@@ -699,7 +1399,7 @@ let shownSafetyAlert = null;            // { kind: "alert" | "quake", id }
 
 function loadDismissedQuakes() {
     try {
-        const list = JSON.parse(localStorage.getItem(DISMISSED_QUAKES_KEY) || "[]");
+        const list = JSON.parse(storageGet(DISMISSED_QUAKES_KEY) || "[]");
         return Array.isArray(list) ? list : [];
     } catch { return []; }
 }
@@ -709,35 +1409,35 @@ function dismissQuake(id) {
     try {
         const list = loadDismissedQuakes().filter(x => x !== id);
         list.push(id);
-        localStorage.setItem(DISMISSED_QUAKES_KEY, JSON.stringify(list.slice(-50)));
+        storageSet(DISMISSED_QUAKES_KEY, JSON.stringify(list.slice(-50)));
     } catch (e) { /* storage blocked: it just won't be remembered */ }
 }
 
 function formatAgo(ms) {
     const mins = Math.round((Date.now() - Number(ms)) / 60000);
     if (!Number.isFinite(mins) || mins < 0) return "";
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins} min ago`;
+    if (mins < 1) return t("ago_now");
+    if (mins < 60) return mins === 1 ? t("ago_min_1") : t("ago_min", { n: mins });
     const hrs = Math.round(mins / 60);
-    if (hrs < 48) return `${hrs} h ago`;
+    if (hrs < 48) return hrs === 1 ? t("ago_h_1") : t("ago_h", { n: hrs });
     const days = Math.round(hrs / 24);
-    return `${days} day${days === 1 ? "" : "s"} ago`;
+    return days === 1 ? t("ago_day_1") : t("ago_days", { n: days });
 }
 
 /* "M4.8 earthquake" + "46 km SE of Ikungi, Tanzania · 120 km from you · 10 km deep · 2 days ago" */
 function quakeBannerText(q) {
     const mag = Number(q.magnitude);
-    const parts = [q.place || "Nearby"];
+    const parts = [q.place || t("nearby")];
     if (Number.isFinite(Number(q.distance_km)) && q.distance_km !== null) {
-        parts.push(`${Math.round(Number(q.distance_km))} km from you`);
+        parts.push(t("quake_from_you", { km: Math.round(Number(q.distance_km)) }));
     }
     if (q.depth !== null && q.depth !== undefined && Number.isFinite(Number(q.depth))) {
-        parts.push(`${Math.round(Number(q.depth))} km deep`);
+        parts.push(t("quake_depth", { km: Math.round(Number(q.depth)) }));
     }
     const ago = formatAgo(q.time);
     if (ago) parts.push(ago);
     return {
-        title: `M${Number.isFinite(mag) ? mag.toFixed(1) : "?"} earthquake`,
+        title: t("quake_title", { mag: Number.isFinite(mag) ? mag.toFixed(1) : "?" }),
         text: parts.join(" · ")
     };
 }
@@ -758,7 +1458,7 @@ function renderSafetyBanner(data) {
         const top = alerts[0];
         const sev = (top.severity || "").toLowerCase();
         if (iconEl) iconEl.textContent = "⚠️";
-        titleEl.textContent = top.event || "Weather Alert";
+        titleEl.textContent = top.event || t("weather_alert");
         textEl.textContent = top.headline || top.description || "";
         banner.classList.add(sev === "extreme" || sev === "severe" ? "severity-moderate" : "severity-minor");
         banner.style.display = "flex";
@@ -1726,7 +2426,7 @@ function displayWeather(data, opts = {}) {
     const live = !opts.saved;
     if (!data || (data.cod !== 200 && data.cod !== "200")) {
         const errorMessage = getElement("error-message");
-        if (errorMessage) errorMessage.textContent = "City not found. Please try again.";
+        if (errorMessage) errorMessage.textContent = t("city_not_found");
         return;
     }
 
@@ -1749,7 +2449,7 @@ function displayWeather(data, opts = {}) {
     const iconCode = weather.icon || "";
 
     const searchedLocation = data.searched_location || {};
-    const cityName = searchedLocation.name || data.name || "Unknown location";
+    const cityName = searchedLocation.name || data.name || "";
     const stateName = searchedLocation.state || "";
     const countryCode = searchedLocation.country || sys.country || "";
     const locationText = formatLocation(cityName, stateName, countryCode);
@@ -1765,9 +2465,10 @@ function displayWeather(data, opts = {}) {
     if (cityElement) cityElement.textContent = locationText;
 
     try {
-        localStorage.setItem("weatherLastCity", locationText);
+        // A search text for later: always English (the geocoder's language).
+        storageSet("weatherLastCity", inEnglish(() => formatLocation(cityName, stateName, countryCode)));
         if (data.coord && Number.isFinite(data.coord.lat) && Number.isFinite(data.coord.lon)) {
-            localStorage.setItem("weatherLastCoords", JSON.stringify({
+            storageSet("weatherLastCoords", JSON.stringify({
                 lat: data.coord.lat,
                 lon: data.coord.lon,
                 name: cityName,
@@ -1800,10 +2501,10 @@ function displayWeather(data, opts = {}) {
         let cloudsLabel = `${clouds}%`;
         const isCurrentlyRaining = weatherId >= 200 && weatherId <= 531;
         if (isCurrentlyRaining && clouds < 40) {
-            cloudsLabel = `${clouds}% (shower)`;
+            cloudsLabel = t("clouds_shower", { pct: clouds });
         }
         cloudsElement.textContent = cloudsLabel;
-        cloudsElement.title = "Total sky area covered by clouds";
+        cloudsElement.title = t("clouds_title");
     }
 
     const conditionElement = getElement("condition");
@@ -1908,15 +2609,15 @@ function getMoonPhase(date = new Date()) {
     const illumination = (1 - Math.cos(phase * 2 * Math.PI)) / 2;
 
     let name, emoji;
-    if (phase < 0.0625)      { name = "New Moon";        emoji = "🌑"; }
-    else if (phase < 0.1875) { name = "Waxing Crescent"; emoji = "🌒"; }
-    else if (phase < 0.3125) { name = "First Quarter";   emoji = "🌓"; }
-    else if (phase < 0.4375) { name = "Waxing Gibbous";  emoji = "🌔"; }
-    else if (phase < 0.5625) { name = "Full Moon";       emoji = "🌕"; }
-    else if (phase < 0.6875) { name = "Waning Gibbous";  emoji = "🌖"; }
-    else if (phase < 0.8125) { name = "Last Quarter";    emoji = "🌗"; }
-    else if (phase < 0.9375) { name = "Waning Crescent"; emoji = "🌘"; }
-    else                     { name = "New Moon";        emoji = "🌑"; }
+    if (phase < 0.0625)      { name = t("moon_new");             emoji = "🌑"; }
+    else if (phase < 0.1875) { name = t("moon_waxing_crescent"); emoji = "🌒"; }
+    else if (phase < 0.3125) { name = t("moon_first_quarter");   emoji = "🌓"; }
+    else if (phase < 0.4375) { name = t("moon_waxing_gibbous");  emoji = "🌔"; }
+    else if (phase < 0.5625) { name = t("moon_full");            emoji = "🌕"; }
+    else if (phase < 0.6875) { name = t("moon_waning_gibbous");  emoji = "🌖"; }
+    else if (phase < 0.8125) { name = t("moon_last_quarter");    emoji = "🌗"; }
+    else if (phase < 0.9375) { name = t("moon_waning_crescent"); emoji = "🌘"; }
+    else                     { name = t("moon_new");             emoji = "🌑"; }
 
     return { phase, illumination, name, emoji };
 }
@@ -1928,7 +2629,7 @@ function renderMoonCard() {
     const moon = getMoonPhase();
     const pct = Math.round(moon.illumination * 100);
     el.textContent = `${moon.emoji} ${pct}%`;
-    el.title = `${moon.name} — ${pct}% illuminated`;
+    el.title = t("moon_title", { name: moon.name, pct });
 }
 
 
@@ -1939,8 +2640,8 @@ function formatCountdown(seconds) {
     if (!Number.isFinite(seconds) || seconds < 0) return "--";
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
-    if (h > 0) return `${h}h ${m}m`;
-    return `${m}m`;
+    if (h > 0) return t("countdown_hm", { h, m });
+    return t("countdown_m", { m });
 }
 
 function updateSunCountdown() {
@@ -1961,19 +2662,19 @@ function updateSunCountdown() {
     if (now < sunrise) {
         const secs = sunrise - now;
         valueEl.textContent = formatCountdown(secs);
-        valueEl.title = "Until sunrise";
-        if (labelEl) labelEl.textContent = "🌅 SUNRISE IN";
+        valueEl.title = t("until_sunrise");
+        if (labelEl) labelEl.textContent = t("sunrise_in");
     } else if (now < sunset) {
         const secs = sunset - now;
         valueEl.textContent = formatCountdown(secs);
-        valueEl.title = "Until sunset";
-        if (labelEl) labelEl.textContent = "🌇 SUNSET IN";
+        valueEl.title = t("until_sunset");
+        if (labelEl) labelEl.textContent = t("sunset_in");
     } else {
         const tomorrowSunrise = sunrise + 86400;
         const secs = tomorrowSunrise - now;
         valueEl.textContent = formatCountdown(secs);
-        valueEl.title = "Until tomorrow's sunrise";
-        if (labelEl) labelEl.textContent = "🌅 SUNRISE IN";
+        valueEl.title = t("until_tomorrow_sunrise");
+        if (labelEl) labelEl.textContent = t("sunrise_in");
     }
 }
 
@@ -1996,24 +2697,41 @@ function setUvTile(text) {
     if (tile) tile.style.display = "";
 }
 
+function uvLabel(val) {
+    if (val <= 2) return t("uv_low");
+    if (val <= 5) return t("uv_moderate");
+    if (val <= 7) return t("uv_high");
+    if (val <= 10) return t("uv_very_high");
+    return t("uv_extreme");
+}
+
+function aqiLabel(aqi) {
+    return I18N[`aqi_${aqi}`] ? t(`aqi_${aqi}`) : t("unknown");
+}
+
+let lastUvValue = null;    // shown numbers, so a language switch can relabel them
+let lastAqiValue = null;
+
+/* UV and air tiles from the last numbers (labels in the current language). */
+function renderExtraTiles() {
+    if (lastUvValue !== null) setUvTile(`${lastUvValue} (${uvLabel(lastUvValue)})`);
+    const el = getElement("air-quality");
+    if (el && lastAqiValue !== null) el.textContent = `${lastAqiValue} (${aqiLabel(lastAqiValue)})`;
+}
+
 function fetchExtraData(lat, lon) {
     fetchWithTimeout(`/uv?lat=${lat}&lon=${lon}`)
         .then(r => r.ok ? r.json() : null)
         .then(data => {
             if (data && Number.isFinite(Number(data.value)) && data.value !== null) {
-                const val = Math.round(Number(data.value));
-                let label = "";
-                if (val <= 2) label = "Low";
-                else if (val <= 5) label = "Moderate";
-                else if (val <= 7) label = "High";
-                else if (val <= 10) label = "Very High";
-                else label = "Extreme";
-                setUvTile(`${val} (${label})`);
+                lastUvValue = Math.round(Number(data.value));
+                renderExtraTiles();
             } else {
+                lastUvValue = null;
                 setUvTile(null);
             }
         })
-        .catch(() => setUvTile(null));
+        .catch(() => { lastUvValue = null; setUvTile(null); });
 
     fetchWithTimeout(`/air?lat=${lat}&lon=${lon}`)
         .then(r => r.ok ? r.json() : null)
@@ -2021,13 +2739,15 @@ function fetchExtraData(lat, lon) {
             const el = getElement("air-quality");
             if (!el) return;
             if (data && data.aqi) {
-                const labels = ["Good", "Fair", "Moderate", "Poor", "Very Poor"];
-                el.textContent = `${data.aqi} (${labels[data.aqi - 1] || "Unknown"})`;
+                lastAqiValue = data.aqi;
+                renderExtraTiles();
             } else {
+                lastAqiValue = null;
                 el.textContent = "--";
             }
         })
         .catch(() => {
+            lastAqiValue = null;
             const el = getElement("air-quality");
             if (el) el.textContent = "--";
         });
@@ -2058,7 +2778,7 @@ function renderHourlyForecast(data) {
     if (!container) return;
 
     if (!data || !Array.isArray(data.list) || data.list.length === 0) {
-        container.innerHTML = "Hourly forecast unavailable.";
+        container.textContent = t("hourly_unavailable");
         return;
     }
 
@@ -2083,7 +2803,7 @@ function renderHourlyForecast(data) {
         const nowCard = document.createElement("div");
         nowCard.className = "hourly-card now-card";
         nowCard.innerHTML = `
-            <div class="hourly-time">Now</div>
+            <div class="hourly-time">${escapeHtml(t("now"))}</div>
             <div class="hourly-icon">${icon}</div>
             <div class="hourly-temperature">${formatTemp(temp, 0)}${tempUnit()}</div>
             <div class="hourly-rain">💧 ${nowRain}</div>
@@ -2149,13 +2869,13 @@ function forecastDayExtraHtml(daily) {
     const parts = [];
     if (rise || set) {
         parts.push(`<div class="forecast-sun">` +
-            (rise ? `<span title="Sunrise">🌅 ${rise}</span>` : "") +
+            (rise ? `<span title="${escapeHtml(t("sunrise_word"))}">🌅 ${rise}</span>` : "") +
             (rise && set ? " · " : "") +
-            (set ? `<span title="Sunset">🌇 ${set}</span>` : "") + `</div>`);
+            (set ? `<span title="${escapeHtml(t("sunset_word"))}">🌇 ${set}</span>` : "") + `</div>`);
     }
     if (Number.isFinite(uv)) {
         const val = Math.round(uv);
-        parts.push(`<div class="forecast-uv ${uvLevelClass(val)}" title="Max UV index">UV ${val}</div>`);
+        parts.push(`<div class="forecast-uv ${uvLevelClass(val)}" title="${escapeHtml(t("uv_max_title"))}">UV ${val}</div>`);
     }
     return parts.length ? `<div class="forecast-extra">${parts.join("")}</div>` : "";
 }
@@ -2164,7 +2884,7 @@ function renderForecast(data) {
     if (!container) return;
 
     if (!data || (data.cod !== 200 && data.cod !== "200") || !Array.isArray(data.list) || data.list.length === 0) {
-        container.innerHTML = "Forecast unavailable.";
+        container.textContent = t("forecast_unavailable");
         return;
     }
 
@@ -2237,8 +2957,8 @@ function renderForecast(data) {
         const condition = getConditionText(weatherId, weather.description);
 
         const date = new Date(`${dateString}T12:00:00`);
-        const day = date.toLocaleDateString("en-KE", { weekday: "short" });
-        const forecastDate = date.toLocaleDateString("en-KE", { day: "numeric", month: "short" });
+        const day = dayName(date, true);
+        const forecastDate = `${date.getDate()} ${monthName(date.getMonth(), true)}`;
 
         const card = document.createElement("div");
         card.className = "forecast-day";
@@ -2257,7 +2977,7 @@ function renderForecast(data) {
     });
 
     if (container.children.length === 0) {
-        container.innerHTML = "Forecast unavailable.";
+        container.textContent = t("forecast_unavailable");
     }
 
     // (Saved by loadWeatherFull, not here: re-rendering a saved copy or
@@ -2363,11 +3083,7 @@ function paintCalendar() {
     const year = _calViewYear;
     const month = _calViewMonth;
 
-    const monthNames = [
-        "January","February","March","April","May","June",
-        "July","August","September","October","November","December"
-    ];
-    label.textContent = `${monthNames[month]} ${year}`;
+    label.textContent = `${monthName(month)} ${year}`;
 
     const firstDay = new Date(Date.UTC(year, month, 1));
     const startWeekday = firstDay.getUTCDay();
@@ -2469,15 +3185,9 @@ function setLoadingState() {
    Resolves true when fresh weather was shown, false otherwise. Never rejects.
 ========================================================= */
 let weatherLoadSeq = 0;
-const WEATHER_UNAVAILABLE_MESSAGE =
-    "Weather is temporarily unavailable. Please try again in a few minutes.";
-const SEARCH_UNAVAILABLE_MESSAGE =
-    "City search is temporarily unavailable. Please try again in a few minutes.";
+// Messages: t("weather_unavailable"), t("search_unavailable"), and for a
 // 429: the server's per-address limit (many phones can share one address).
-const RATE_LIMITED_MESSAGE =
-    "Too many requests from your network right now. Please wait a minute, then tap Retry.";
-const RATE_LIMITED_SEARCH_MESSAGE =
-    "Too many searches from your network right now. Please wait a minute, then try again.";
+// t("rate_limited") / t("rate_limited_search").
 
 function isShowingPlace(lat, lon) {
     const loc = window._loadedLocation;
@@ -2497,10 +3207,10 @@ function setLoadingUi(message) {
     const conditionElement = getElement("condition");
     const temperatureElement = getElement("temperature");
     const forecastLocation = getElement("forecast-location");
-    if (cityElement) cityElement.textContent = "Loading...";
+    if (cityElement) cityElement.textContent = t("loading");
     if (conditionElement) conditionElement.textContent = message;
     if (temperatureElement) temperatureElement.textContent = `--${tempUnit()}`;
-    if (forecastLocation) forecastLocation.textContent = "Loading...";
+    if (forecastLocation) forecastLocation.textContent = t("loading");
     setLoadingState();
     window._currentWeatherData = null;
 }
@@ -2531,13 +3241,13 @@ function showSavedWeatherFallback(retry, failMessage) {
     const conditionElement = getElement("condition");
     const forecastLocation = getElement("forecast-location");
     const errorMessage = getElement("error-message");
-    if (cityElement) cityElement.textContent = "Weather unavailable";
+    if (cityElement) cityElement.textContent = t("weather_unavailable_title");
     if (conditionElement) conditionElement.textContent = failMessage;
     if (forecastLocation) forecastLocation.textContent = "";
     if (errorMessage) errorMessage.textContent = failMessage;
     ["hourly-forecast", "forecast"].forEach(id => {
         const el = getElement(id);
-        if (el) el.textContent = "Forecast unavailable.";
+        if (el) el.textContent = t("forecast_unavailable");
     });
     showDataStatus(null, retry);
 }
@@ -2546,8 +3256,8 @@ function showSavedWeatherFallback(retry, failMessage) {
    adjust(weather, forecast): optional, may return a promise.
    keepCurrent: leave the weather on screen while loading. */
 function loadWeatherFull(url, { retry, adjust, keepCurrent = false, coords = null,
-                                loadingMessage = "Loading weather...",
-                                failMessage = "Unable to load weather." } = {}) {
+                                loadingMessage = t("loading_weather"),
+                                failMessage = t("load_failed") } = {}) {
     const seq = ++weatherLoadSeq;
     const errorMessage = getElement("error-message");
     if (errorMessage) errorMessage.textContent = "";
@@ -2596,12 +3306,12 @@ function loadWeatherFull(url, { retry, adjust, keepCurrent = false, coords = nul
             // being replaced); 429 = too many requests from this address.
             // Say so plainly instead of a generic failure.
             const status = error && error.status;
-            const message = status === 429 ? RATE_LIMITED_MESSAGE
-                : status === 503 ? WEATHER_UNAVAILABLE_MESSAGE : failMessage;
+            const message = status === 429 ? t("rate_limited")
+                : status === 503 ? t("weather_unavailable") : failMessage;
             showSavedWeatherFallback(retry, message);
             // With weather still on screen the bar only says "saved data";
             // a 429 also says why, so the user knows to wait before Retry.
-            if (status === 429 && errorMessage) errorMessage.textContent = RATE_LIMITED_MESSAGE;
+            if (status === 429 && errorMessage) errorMessage.textContent = t("rate_limited");
             return false;
         });
 }
@@ -2647,7 +3357,7 @@ function selectLocation(location) {
     const latitude = Number(location.lat);
     const longitude = Number(location.lon);
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-        if (errorMessage) errorMessage.textContent = "Invalid location coordinates.";
+        if (errorMessage) errorMessage.textContent = t("invalid_coords");
         return;
     }
 
@@ -2710,26 +3420,26 @@ function searchLocations(city) {
             resultsContainer.innerHTML = "";
 
             if (status === 429 || data.error === "rate_limited") {
-                showSearchProblem(city, RATE_LIMITED_SEARCH_MESSAGE);
+                showSearchProblem(city, t("rate_limited_search"));
                 return;
             }
             if (status === 503 || data.error === "weather_unavailable") {
-                showSearchProblem(city, SEARCH_UNAVAILABLE_MESSAGE);
+                showSearchProblem(city, t("search_unavailable"));
                 return;
             }
             if (status === 404 || data.cod === 404 || data.cod === "404") {
-                if (errorMessage) errorMessage.textContent = "City not found. Please try again.";
+                if (errorMessage) errorMessage.textContent = t("city_not_found");
                 resultsContainer.style.display = "none";
                 if (searchHint) searchHint.style.display = "none";
                 setControlsVisibility(true);
                 return;
             }
             if (status !== 200 && data.cod !== 200 && data.cod !== "200") {
-                showSearchProblem(city, "Unable to search locations right now.");
+                showSearchProblem(city, t("search_failed"));
                 return;
             }
             if (!Array.isArray(data.locations) || data.locations.length === 0) {
-                if (errorMessage) errorMessage.textContent = "City not found. Please try again.";
+                if (errorMessage) errorMessage.textContent = t("city_not_found");
                 resultsContainer.style.display = "none";
                 if (searchHint) searchHint.style.display = "none";
                 setControlsVisibility(true);
@@ -2744,8 +3454,8 @@ function searchLocations(city) {
             const heading = document.createElement("div");
             heading.className = "location-heading";
             heading.innerHTML = `
-                📍 Choose your location
-                <small class="location-instruction">Select a location below to view its weather.</small>
+                ${escapeHtml(t("choose_location"))}
+                <small class="location-instruction">${escapeHtml(t("choose_location_sub"))}</small>
             `;
             resultsContainer.appendChild(heading);
 
@@ -2755,7 +3465,7 @@ function searchLocations(city) {
                 button.className = "location-item";
                 const countryName = getCountryName(location.country);
                 button.innerHTML = `
-                    <strong>📍 ${escapeHtml(location.name || "Unknown location")}</strong>
+                    <strong>📍 ${escapeHtml(location.name || t("unknown_location"))}</strong>
                     ${location.state ? `<small>📌 ${escapeHtml(location.state)}</small>` : ""}
                     <small>🌍 ${escapeHtml(countryName)}</small>
                 `;
@@ -2765,7 +3475,7 @@ function searchLocations(city) {
         })
         .catch(error => {
             console.error("Location search error:", error);
-            showSearchProblem(city, "Unable to search locations right now.");
+            showSearchProblem(city, t("search_failed"));
         });
 }
 
@@ -2789,7 +3499,7 @@ function showSearchProblem(city, message) {
     const retry = document.createElement("button");
     retry.type = "button";
     retry.className = "data-status-retry";
-    retry.textContent = "Retry";
+    retry.textContent = t("retry");
     retry.addEventListener("click", () => searchLocations(city));
     box.appendChild(text);
     box.appendChild(retry);
@@ -2805,7 +3515,6 @@ const GEO_MAX_WAIT_MS = 30000;            // keep watching for a fix up to 30 s
 const GEO_GOOD_ENOUGH_M = 100;            // stop as soon as a fix is this accurate
 const GEO_MAX_AGE_MS = 10 * 60 * 1000;    // a fix the phone already has, up to 10 min old
 const GEO_CACHED_AFTER_MS = 2000;         // a fix older than this came from the phone's cache
-const LOCATION_FAILED_MESSAGE = "Couldn't find your location. Try searching for your city.";
 
 /* One high-accuracy watchPosition, up to GEO_MAX_WAIT_MS.
    - a fix the phone already had (up to 10 min old) is accepted straight away
@@ -2860,11 +3569,11 @@ function locateWithWatch(onProgress) {
 function showApproximateLocationNote() {
     const errorMessage = getElement("error-message");
     if (!errorMessage) return;
-    errorMessage.textContent = "📍 Approximate location (from your internet connection). ";
+    errorMessage.textContent = t("approximate_note");
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "data-status-retry";
-    btn.textContent = "Search for your city";
+    btn.textContent = t("search_your_city");
     btn.addEventListener("click", () => {
         const input = getElement("city-input");
         if (input) {
@@ -2882,7 +3591,7 @@ async function useIpLocationFallback() {
         const data = res.ok ? await res.json() : null;
         if (data && Number.isFinite(data.lat) && Number.isFinite(data.lon)) {
             const ok = await getWeatherByCoordinates(
-                data.lat, data.lon, "Approximate location", data.country || "", data.name || "");
+                data.lat, data.lon, t("approximate_place"), data.country || "", data.name || "");
             if (ok) showApproximateLocationNote();
             return true;
         }
@@ -2901,9 +3610,9 @@ function useMyLocation() {
 
     if (locationBtn) {
         locationBtn.disabled = true;
-        locationBtn.textContent = "📍 Locating...";
+        locationBtn.textContent = t("locating");
     }
-    if (errorMessage) errorMessage.textContent = "📍 Finding your location...";
+    if (errorMessage) errorMessage.textContent = t("finding_location");
 
     if (searchInput) searchInput.value = "";
     if (searchHint) searchHint.style.display = "none";
@@ -2922,7 +3631,7 @@ function useMyLocation() {
     const resetButton = () => {
         if (locationBtn) {
             locationBtn.disabled = false;
-            locationBtn.textContent = "📍 Use My Location";
+            locationBtn.textContent = t("use_my_location");
         }
     };
 
@@ -2934,7 +3643,7 @@ function useMyLocation() {
             ({ position, error: lastError } = await locateWithWatch(best => {
                 if (errorMessage) {
                     errorMessage.textContent =
-                        `📡 Improving accuracy (±${Math.round(best.coords.accuracy)} m)...`;
+                        t("improving_accuracy", { m: Math.round(best.coords.accuracy) });
                 }
             }));
         }
@@ -2942,7 +3651,7 @@ function useMyLocation() {
 
         if (position) {
             const { latitude, longitude, accuracy } = position.coords;
-            getWeatherByLocation(latitude, longitude, `Your Location (±${Math.round(accuracy)}m)`);
+            getWeatherByLocation(latitude, longitude, t("your_location_acc", { m: Math.round(accuracy) }));
             return;
         }
 
@@ -2954,10 +3663,10 @@ function useMyLocation() {
         }
 
         // No fix at all: an approximate place beats nothing.
-        if (errorMessage) errorMessage.textContent = "📍 Finding an approximate location...";
+        if (errorMessage) errorMessage.textContent = t("finding_approximate");
         if (await useIpLocationFallback()) return;
 
-        if (errorMessage) errorMessage.textContent = LOCATION_FAILED_MESSAGE;
+        if (errorMessage) errorMessage.textContent = t("location_failed");
     })();
 }
 
@@ -2965,7 +3674,7 @@ function useMyLocation() {
 /* =========================================================
    WEATHER BY GPS
 ========================================================= */
-function getWeatherByLocation(latitude, longitude, displayName = "Your Location", opts = {}) {
+function getWeatherByLocation(latitude, longitude, displayName = t("your_location"), opts = {}) {
     // Place name runs in parallel; it is optional, so a failure just means no name.
     const reversePromise = fetchWithTimeout(`/reverse?lat=${latitude}&lon=${longitude}`)
         .then(r => r.ok ? r.json() : null)
@@ -2978,8 +3687,8 @@ function getWeatherByLocation(latitude, longitude, displayName = "Your Location"
     return loadWeatherFull(`/weather-full?lat=${latitude}&lon=${longitude}`, {
         keepCurrent,
         coords: { lat: latitude, lon: longitude },
-        loadingMessage: "Loading your local weather...",
-        failMessage: "Unable to load your local weather.",
+        loadingMessage: t("loading_local"),
+        failMessage: t("load_local_failed"),
         retry: () => getWeatherByLocation(latitude, longitude, displayName, { keepCurrent: true }),
         adjust: async (w, f) => {
             const reverseData = await reversePromise;
@@ -3129,8 +3838,8 @@ function renderSavedLocations() {
 
         const label = document.createElement("span");
         label.className = "chip-label";
-        label.textContent = "📍 " + (loc.name || "Unknown");
-        label.title = "Load " + (loc.name || "this location");
+        label.textContent = "📍 " + (displayPlaceName(loc.name) || t("unknown"));
+        label.title = t("load_place", { name: displayPlaceName(loc.name) || t("this_location") });
         label.addEventListener("click", () => {
             getWeatherByCoordinates(loc.lat, loc.lon, loc.name, loc.country, loc.state);
         });
@@ -3140,11 +3849,11 @@ function renderSavedLocations() {
         remove.className = "remove-chip";
         remove.type = "button";
         remove.textContent = "✕";
-        remove.title = "Remove from saved";
+        remove.title = t("remove_saved");
         remove.addEventListener("click", (e) => {
             e.stopPropagation();
             savedLocations.splice(index, 1);
-            localStorage.setItem("weatherSavedLocations", JSON.stringify(savedLocations));
+            storageSet("weatherSavedLocations", JSON.stringify(savedLocations));
             renderSavedLocations();
             updateSaveButtonState();
         });
@@ -3179,14 +3888,20 @@ function getDisasterIcon(type) {
 
 function getDisasterName(type) {
     const map = {
-        "EQ": "Earthquake",
-        "TC": "Tropical Cyclone",
-        "FL": "Flood",
-        "VO": "Volcano",
-        "DR": "Drought",
-        "WF": "Wildfire"
+        "EQ": "dis_earthquake",
+        "TC": "dis_tropical_cyclone",
+        "FL": "dis_flood",
+        "VO": "dis_volcano",
+        "DR": "dis_drought",
+        "WF": "dis_wildfire"
     };
-    return map[type] || "Disaster";
+    return t(map[type] || "dis_disaster");
+}
+
+/* GDACS level (Red / Orange / Green) in the current language. */
+function levelName(level) {
+    const key = `level_${String(level || "green").toLowerCase()}`;
+    return I18N[key] ? t(key) : String(level || "");
 }
 
 async function renderCatastropheWatch() {
@@ -3202,7 +3917,7 @@ async function renderCatastropheWatch() {
         if (alerts.length === 0) {
             container.innerHTML = `
                 <div class="catastrophe-empty">
-                    ✅ No major global disasters reported in the last 30 days
+                    ${escapeHtml(t("no_disasters"))}
                 </div>
             `;
             return;
@@ -3231,10 +3946,10 @@ async function renderCatastropheWatch() {
                     <div class="catastrophe-name" title="${name}">${name}</div>
                     <div class="catastrophe-meta">
                         <span class="catastrophe-badge ${level}">
-                            ${escapeHtml(a.alertlevel || "Green")}
+                            ${escapeHtml(levelName(a.alertlevel))}
                         </span>
                         <span>${escapeHtml(a.country || "")}</span>
-                        <span class="catastrophe-view">View report →</span>
+                        <span class="catastrophe-view">${escapeHtml(t("view_report"))}</span>
                     </div>
                 </div>
             `;
@@ -3249,7 +3964,7 @@ async function renderCatastropheWatch() {
         console.error("Catastrophe watch error:", err);
         container.innerHTML = `
             <div class="catastrophe-empty">
-                ⚠️ Unable to load global alerts
+                ${escapeHtml(t("disasters_failed"))}
             </div>
         `;
     }
@@ -3269,7 +3984,7 @@ function renderCitiesGlance() {
     if (!savedLocations || savedLocations.length === 0) {
         container.innerHTML = `
             <div class="cities-empty">
-                💡 Save a location with the ♡ button to see it here
+                ${escapeHtml(t("cities_empty"))}
             </div>
         `;
         return;
@@ -3281,10 +3996,10 @@ function renderCitiesGlance() {
     savedLocations.forEach(loc => {
         const card = document.createElement("div");
         card.className = "city-card loading";
-        card.title = "Click to load " + (loc.name || "this location");
+        card.title = t("click_to_load", { name: displayPlaceName(loc.name) || t("this_location") });
 
         card.innerHTML = `
-            <div class="city-card-name">📍 ${escapeHtml(loc.name || "Unknown")}</div>
+            <div class="city-card-name">📍 ${escapeHtml(displayPlaceName(loc.name) || t("unknown"))}</div>
             <div class="city-card-spinner"></div>
         `;
 
@@ -3319,8 +4034,8 @@ function renderCitiesGlance() {
                 card.classList.remove("loading");
                 card.classList.add("error");
                 card.innerHTML = `
-                    <div class="city-card-name">📍 ${escapeHtml(loc.name || "Unknown")}</div>
-                    <div class="city-card-feels">⚠️ Unavailable</div>
+                    <div class="city-card-name">📍 ${escapeHtml(displayPlaceName(loc.name) || t("unknown"))}</div>
+                    <div class="city-card-feels">${escapeHtml(t("unavailable"))}</div>
                 `;
             });
     });
@@ -3335,14 +4050,14 @@ function fillCityCard(card, loc, data) {
     const temp = Number(data.main?.temp);
     const feels = Number(data.main?.feels_like);
 
-    const rawName = String(loc.name || data.name || "Unknown");
+    const rawName = String(displayPlaceName(loc.name || data.name) || t("unknown"));
     const shortName = rawName.length > 18 ? rawName.slice(0, 16) + "…" : rawName;
 
     card.innerHTML = `
         <div class="city-card-name" title="${escapeHtml(rawName)}">📍 ${escapeHtml(shortName)}</div>
         <div class="city-card-icon">${icon}</div>
         <div class="city-card-temp">${formatTemp(temp, 0)}${tempUnit()}</div>
-        <div class="city-card-feels">feels ${formatTemp(feels, 0)}${tempUnit()}</div>
+        <div class="city-card-feels">${escapeHtml(t("feels_short", { temp: `${formatTemp(feels, 0)}${tempUnit()}` }))}</div>
     `;
 }
 
@@ -3357,7 +4072,7 @@ function updateSaveButtonState() {
     const loc = window._loadedLocation;
 
     if (!loc || !Number.isFinite(loc.lat) || !Number.isFinite(loc.lon)) {
-        btn.textContent = "♡ Save Location";
+        btn.textContent = t("save_location");
         btn.classList.remove("saved");
         btn.disabled = true;
         return;
@@ -3366,10 +4081,10 @@ function updateSaveButtonState() {
     btn.disabled = false;
 
     if (isLocationSaved(loc.lat, loc.lon)) {
-        btn.textContent = "♥ Saved";
+        btn.textContent = t("saved");
         btn.classList.add("saved");
     } else {
-        btn.textContent = "♡ Save Location";
+        btn.textContent = t("save_location");
         btn.classList.remove("saved");
     }
 }
@@ -3403,7 +4118,7 @@ function setupSaveButton() {
             });
         }
 
-        localStorage.setItem("weatherSavedLocations", JSON.stringify(savedLocations));
+        storageSet("weatherSavedLocations", JSON.stringify(savedLocations));
         renderSavedLocations();
         updateSaveButtonState();
     });
@@ -3440,7 +4155,7 @@ function buildShareText() {
     const icon = getWeatherIcon(weatherId, weather.icon);
 
     const loc = data.searched_location || {};
-    const city = loc.name || data.name || "Unknown";
+    const city = loc.name || data.name || t("unknown");
     const state = loc.state || "";
     const country = loc.country || data.sys?.country || "";
     const locationText = formatLocation(city, state, country);
@@ -3452,9 +4167,9 @@ function buildShareText() {
     const windDeg = Number(wind.deg);
 
     let text = `${icon} ${locationText} — ${formatTemp(temp)}${tempUnit()}, ${condition}\n`;
-    text += `Feels like ${formatTemp(feelsLike)}${tempUnit()} | `;
-    text += `Humidity ${humidity}% | `;
-    text += `Wind ${formatSpeed(windSpeed)} ${speedUnit()}`;
+    text += t("share_feels", { temp: `${formatTemp(feelsLike)}${tempUnit()}` }) + " | ";
+    text += t("share_humidity", { pct: humidity }) + " | ";
+    text += t("share_wind", { speed: `${formatSpeed(windSpeed)} ${speedUnit()}` });
     if (Number.isFinite(windDeg)) text += ` ${degreesToCompass(windDeg)}`;
     text += `\n\n${window.location.href}`;
 
@@ -3485,7 +4200,7 @@ function openQRModal() {
         });
     } else {
         qrContainer.innerHTML =
-            '<p style="color:#0f172a;font-size:12px;padding:20px;">QR library failed to load</p>';
+            `<p style="color:#0f172a;font-size:12px;padding:20px;">${escapeHtml(t("qr_failed"))}</p>`;
     }
 
     overlay.classList.add("show");
@@ -3516,9 +4231,9 @@ function setupQRModal() {
         copyBtn.addEventListener("click", async () => {
             try {
                 await navigator.clipboard.writeText(window.location.origin);
-                showToast("✅ Link copied");
+                showToast(t("toast_link_copied"));
             } catch {
-                showToast("❌ Copy failed");
+                showToast(t("toast_copy_failed"));
             }
         });
     }
@@ -3537,7 +4252,7 @@ function openShareMenu() {
 
     const text = buildShareText();
     if (!text) {
-        showToast("No weather data to share yet.");
+        showToast(t("toast_nothing_share"));
         return;
     }
 
@@ -3560,7 +4275,7 @@ function closeShareMenu() {
 function handleShareOption(platform) {
     const text = buildShareText();
     if (!text) {
-        showToast("No weather data to share yet.");
+        showToast(t("toast_nothing_share"));
         return;
     }
 
@@ -3599,7 +4314,7 @@ function handleShareOption(platform) {
         case "copy":
             navigator.clipboard.writeText(text)
                 .then(() => {
-                    showToast("✅ Weather copied to clipboard");
+                    showToast(t("toast_weather_copied"));
                     closeShareMenu();
                 })
                 .catch(() => {
@@ -3609,7 +4324,7 @@ function handleShareOption(platform) {
                     ta.style.opacity = "0";
                     document.body.appendChild(ta);
                     ta.select();
-                    try { document.execCommand("copy"); showToast("✅ Copied"); } catch {}
+                    try { document.execCommand("copy"); showToast(t("toast_copied")); } catch {}
                     document.body.removeChild(ta);
                     closeShareMenu();
                 });
@@ -3721,12 +4436,12 @@ function setupFeedback() {
         const msg = message.value.trim();
 
         if (msg.length < 5) {
-            showToast("Please write a bit more (5+ chars)");
+            showToast(t("toast_write_more"));
             return;
         }
 
         submitBtn.disabled = true;
-        submitBtn.textContent = "Sending...";
+        submitBtn.textContent = t("fb_sending");
 
         if (typeof mpTrack === "function") {
             mpTrack("feedback_submitted", {
@@ -3755,9 +4470,9 @@ function setupFeedback() {
             message.value = "";
             email.value = "";
             submitBtn.disabled = false;
-            submitBtn.textContent = "Send Feedback";
+            submitBtn.textContent = t("feedback_title");
             overlay.classList.remove("show");
-            showToast("✅ Thank you for your feedback!");
+            showToast(t("toast_thanks"));
         }, 600);
     });
 }
@@ -3818,7 +4533,8 @@ window.WeatherHelpers = {
     getWeatherByLocation,
     shareCurrentWeather,
     mpTrack,
-    getSavedLocations: () => savedLocations
+    getSavedLocations: () => savedLocations,
+    t
 };
 
 
@@ -3844,7 +4560,7 @@ async function loadDefaultWeather() {
         window._dataTime = savedEntry.time;
         showDataStatus(savedEntry.time, null, { updating: true });
 
-        const lastCoordsRaw = localStorage.getItem("weatherLastCoords");
+        const lastCoordsRaw = storageGet("weatherLastCoords");
         if (lastCoordsRaw) {
             try {
                 const lc = JSON.parse(lastCoordsRaw);
@@ -3857,7 +4573,7 @@ async function loadDefaultWeather() {
             } catch (e) { /* fall through */ }
         }
 
-        const lastCity = localStorage.getItem("weatherLastCity");
+        const lastCity = storageGet("weatherLastCity");
         if (lastCity) {
             if (input) input.value = lastCity;
             getWeather(lastCity, { keepCurrent: true });
@@ -3876,7 +4592,7 @@ async function loadDefaultWeather() {
         return;
     }
 
-    const lastCoordsRaw = localStorage.getItem("weatherLastCoords");
+    const lastCoordsRaw = storageGet("weatherLastCoords");
     if (lastCoordsRaw) {
         try {
             const lc = JSON.parse(lastCoordsRaw);
@@ -3888,14 +4604,14 @@ async function loadDefaultWeather() {
         } catch (e) { /* fall through */ }
     }
 
-    const lastCity = localStorage.getItem("weatherLastCity");
+    const lastCity = storageGet("weatherLastCity");
     if (lastCity) {
         if (input) input.value = lastCity;
         getWeather(lastCity);
         return;
     }
 
-    if (input) input.value = "Finding your location...";
+    if (input) input.value = t("finding_location_input");
 
     try {
         const res = await fetchWithTimeout("/my-location");
@@ -3933,6 +4649,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const searchHint = getElement("search-hint");
     if (searchHint) searchHint.style.display = "none";
 
+    applyStaticTranslations();
+    setupLanguageSwitch();
     applyTheme();
 
     setupSearch();
@@ -4118,11 +4836,11 @@ function radarTogglePlay() {
     if (radarPlayTimer) {
         clearInterval(radarPlayTimer);
         radarPlayTimer = null;
-        btn.textContent = "▶ Play";
+        btn.textContent = t("radar_play");
         return;
     }
 
-    btn.textContent = "⏸ Pause";
+    btn.textContent = t("radar_pause");
     radarPlayTimer = setInterval(() => radarStep(1), 700);
 }
 
@@ -4189,7 +4907,7 @@ function setupVoiceSearch() {
             langSelect.appendChild(opt);
         });
 
-        const savedLang = localStorage.getItem("voiceSearchLang");
+        const savedLang = storageGet("voiceSearchLang");
         const browserLang = navigator.language || "en-US";
         const preferred = savedLang || browserLang;
 
@@ -4211,7 +4929,7 @@ function setupVoiceSearch() {
         voiceListening = true;
         btn.classList.add("listening");
         btn.textContent = "⏹";
-        btn.title = "Listening… tap to stop";
+        btn.title = t("voice_listening");
         if (typeof mpTrack === "function") mpTrack("voice_search_started");
     };
 
@@ -4236,17 +4954,17 @@ function setupVoiceSearch() {
         const code = event.error;
 
         if (code === "not-allowed" || code === "service-not-allowed") {
-            showToast("🎤 Microphone access denied");
+            showToast(t("toast_mic_denied"));
         } else if (code === "no-speech") {
-            showToast("🎤 Didn't catch that — try again");
+            showToast(t("toast_no_speech"));
         } else if (code === "audio-capture") {
-            showToast("🎤 No microphone found");
+            showToast(t("toast_no_mic"));
         } else if (code === "network") {
-            showToast("🎤 Network error — check connection");
+            showToast(t("toast_voice_network"));
         } else if (code === "aborted") {
             // User cancelled — silent
         } else {
-            showToast("🎤 Voice search failed");
+            showToast(t("toast_voice_failed"));
         }
 
         if (typeof mpTrack === "function") {
@@ -4259,7 +4977,7 @@ function setupVoiceSearch() {
         btn.classList.remove("listening");
         // Restore the SVG mic
         btn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M12 14.5a3.5 3.5 0 0 0 3.5-3.5V6a3.5 3.5 0 1 0-7 0v5a3.5 3.5 0 0 0 3.5 3.5z"/><path d="M18 11a1 1 0 1 0-2 0 4 4 0 1 1-8 0 1 1 0 1 0-2 0 6 6 0 0 0 5 5.91V19H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-2.09A6 6 0 0 0 18 11z"/></svg>`;
-        btn.title = "Search by voice";
+        btn.title = t("voice_search");
     };
 
     btn.addEventListener("click", () => {
@@ -4278,8 +4996,8 @@ function setupVoiceSearch() {
     if (langSelect) {
         langSelect.addEventListener("change", () => {
             voiceRecognition.lang = langSelect.value;
-            localStorage.setItem("voiceSearchLang", langSelect.value);
-            showToast(`🎤 Language: ${langSelect.options[langSelect.selectedIndex].text}`);
+            storageSet("voiceSearchLang", langSelect.value);
+            showToast(t("toast_voice_lang", { lang: langSelect.options[langSelect.selectedIndex].text }));
         });
     }
 }
@@ -4317,7 +5035,7 @@ function goToSavedCity(delta) {
     const next = savedLocations[idx];
     if (!next) return;
 
-    showToast(`📍 ${next.name || "Saved location"}`);
+    showToast(`📍 ${displayPlaceName(next.name) || t("saved_location")}`);
     getWeatherByCoordinates(next.lat, next.lon, next.name, next.country, next.state);
 }
 

@@ -118,6 +118,28 @@
       ? ['Summarize this story', 'What do the slang words mean?', 'Recommend a story like this']
       : ['Recommend a story about love', 'Any confessions?', 'How do I share my story?']);
     var fetchFn = opts.fetch || win.fetch.bind(win);
+
+    // Texts in the page's current language: the page may define
+    // window.MkuuHelperText(key) (asked every time, so a language switch shows
+    // at once). No answer means the English default below.
+    var lookup = opts.text || function (key) {
+      return typeof win.MkuuHelperText === 'function' ? win.MkuuHelperText(key) : null;
+    };
+    function txt(key, fallback) {
+      var v = null;
+      try { v = lookup(key); } catch (e) { v = null; }
+      return (typeof v === 'string' && v) ? v : fallback;
+    }
+    function currentChips() {
+      var v = txt('chips', '');
+      var list = v ? v.split('|').map(function (c) { return c.trim(); }).filter(Boolean) : [];
+      return list.length ? list : chipList;
+    }
+    function friendlyText(status, detail) {
+      if (status === 429) return txt('err429', friendly(status, detail));
+      if (status === 503) return txt('err503', friendly(status, detail));
+      return txt('errOther', friendly(status, detail));
+    }
     var store = opts.storage;
     if (!store) { try { store = win.sessionStorage; } catch (e) { store = null; } }
     var raf = opts.raf || win.requestAnimationFrame || function (f) { return setTimeout(f, 16); };
@@ -144,7 +166,7 @@
     dot.hidden = true;
     fab.appendChild(dot);
     fab.type = 'button';
-    fab.setAttribute('aria-label', 'Ask Mkuu');
+    fab.setAttribute('aria-label', txt('ask', 'Ask Mkuu'));
     fab.setAttribute('aria-expanded', 'false');
     fab.setAttribute('aria-controls', 'mkh-panel');
 
@@ -160,9 +182,9 @@
     title.appendChild(el('strong', '', 'Mkuu'));
     title.appendChild(el('small', '', subtitle));
     var resetBtn = icon('reset', el('button', 'mkh-iconbtn'));
-    resetBtn.type = 'button'; resetBtn.setAttribute('aria-label', 'Start a new chat');
+    resetBtn.type = 'button'; resetBtn.setAttribute('aria-label', txt('newChat', 'Start a new chat'));
     var closeBtn = icon('close', el('button', 'mkh-iconbtn'));
-    closeBtn.type = 'button'; closeBtn.setAttribute('aria-label', 'Close');
+    closeBtn.type = 'button'; closeBtn.setAttribute('aria-label', txt('close', 'Close'));
     [avatar, title, resetBtn, closeBtn].forEach(function (n) { head.appendChild(n); });
 
     var log = el('div', 'mkh-log');
@@ -176,11 +198,11 @@
     input.maxLength = MAX_CHARS;
     input.autocomplete = 'off';
     input.placeholder = placeholder;
-    input.setAttribute('aria-label', 'Your message to Mkuu');
+    input.setAttribute('aria-label', txt('message', 'Your message to Mkuu'));
     var sendBtn = icon('send', el('button', 'mkh-send'));
-    sendBtn.type = 'submit'; sendBtn.setAttribute('aria-label', 'Send');
+    sendBtn.type = 'submit'; sendBtn.setAttribute('aria-label', txt('send', 'Send'));
     form.appendChild(input); form.appendChild(sendBtn);
-    var note = el('p', 'mkh-note', 'Mkuu is an AI and can make mistakes. Please do not share personal details.');
+    var note = el('p', 'mkh-note', txt('note', 'Mkuu is an AI and can make mistakes. Please do not share personal details.'));
 
     [head, log, chips, form, note].forEach(function (n) { panel.appendChild(n); });
     rootEl.appendChild(panel); rootEl.appendChild(fab);
@@ -212,10 +234,10 @@
         shown++;
         var a = el('a', 'mkh-card');
         a.href = String(s.url);
-        a.appendChild(el('span', 'mkh-cardtag', String(s.category || 'Story')));
+        a.appendChild(el('span', 'mkh-cardtag', String(s.category || txt('story', 'Story'))));
         a.appendChild(el('span', 'mkh-cardtitle', String(s.title)));
         if (s.excerpt) a.appendChild(el('span', 'mkh-cardtext', shorten(s.excerpt, 130)));
-        var cta = el('span', 'mkh-cardcta', 'Read full story ');
+        var cta = el('span', 'mkh-cardcta', txt('readStory', 'Read full story') + ' ');
         var ar = icon('arrow', el('span', 'mkh-cardarrow'));
         cta.appendChild(ar);
         a.appendChild(cta);
@@ -226,12 +248,12 @@
 
     function welcome() {
       log.textContent = '';
-      addMsg('bot', welcomeText);
+      addMsg('bot', txt('welcome', welcomeText));
     }
 
     function setChips() {
       chips.textContent = '';
-      chipList.forEach(function (label) {
+      currentChips().forEach(function (label) {
         var b = el('button', 'mkh-chipbtn', label);
         b.type = 'button';
         b.addEventListener('click', function () { send(label); });
@@ -267,7 +289,7 @@
 
     function setDot(on) {
       dot.hidden = !on;
-      fab.setAttribute('aria-label', on ? 'Ask Mkuu (1 new alert)' : 'Ask Mkuu');
+      fab.setAttribute('aria-label', on ? txt('askAlert', 'Ask Mkuu (1 new alert)') : txt('ask', 'Ask Mkuu'));
     }
 
     function checkNotice() {
@@ -305,7 +327,7 @@
           if (!pending) { pending = true; raf(paint); }
         }
         if (ev.error) {
-          answer = 'Mkuu could not answer that. Please try again.';
+          answer = txt('noAnswer', 'Mkuu could not answer that. Please try again.');
           gotAny = true;
         }
         if (ev.done && Array.isArray(ev.stories)) stories = ev.stories;
@@ -322,7 +344,7 @@
       }
       return pump().then(function () {
         paint();
-        if (!answer.trim() && !stories) renderText(doc, bubble, 'I got an empty reply. Please try again.');
+        if (!answer.trim() && !stories) renderText(doc, bubble, txt('empty', 'I got an empty reply. Please try again.'));
         if (stories) addCards(bubble, stories);
       });
     }
@@ -342,7 +364,7 @@
       var started = false;
       var killTimer = setTimeout(function () { if (controller) controller.abort(); }, 90000);
       var wakeTimer = setTimeout(function () {
-        if (!started) renderText(doc, bubble, 'Mkuu is waking up, one moment…');
+        if (!started) renderText(doc, bubble, txt('waking', 'Mkuu is waking up, one moment…'));
       }, 6000);
 
       var body = { message: text, mode: 'auto', site: site };
@@ -360,12 +382,12 @@
       }).then(function (res) {
         if (!res.ok) {
           return res.json().catch(function () { return {}; }).then(function (j) {
-            renderText(doc, bubble, friendly(res.status, j && j.detail));
+            renderText(doc, bubble, friendlyText(res.status, j && j.detail));
           });
         }
         return readStream(res, bubble, function () { started = true; });
       }).catch(function () {
-        renderText(doc, bubble, 'I cannot reach Mkuu right now. Please check your internet and try again.');
+        renderText(doc, bubble, txt('offline', 'I cannot reach Mkuu right now. Please check your internet and try again.'));
       }).then(function () {
         clearTimeout(killTimer); clearTimeout(wakeTimer);
         setBusy(false);
@@ -392,6 +414,7 @@
       sid = '';
       try { if (store) store.removeItem(SID_KEY); } catch (e) { /* ignore */ }
       welcome();
+      setChips();
     });
     form.addEventListener('submit', function (e) { if (e && e.preventDefault) e.preventDefault(); send(input.value); });
     doc.addEventListener('keydown', function (e) { if (e && e.key === 'Escape' && !panel.hidden) setOpen(false); });

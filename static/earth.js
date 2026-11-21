@@ -12,6 +12,19 @@
         return window.WeatherHelpers || {};
     }
 
+    /* A text in the page's language (app.js's t()), or the English fallback. */
+    function T(key, params, fallback) {
+        const t = H().t;
+        if (typeof t !== "function") return fallback;
+        const v = t(key, params || undefined);
+        return typeof v === "string" && v !== key ? v : fallback;
+    }
+
+    function lockLabel() {
+        return globeLockedOnCity ? T("globe_locked", null, "🔒 Locked on city")
+                                 : T("globe_rotate", null, "🔓 Auto-rotate");
+    }
+
     /* ---------- Globe state ---------- */
     let earthInitialized = false;
     let earthRenderer = null;
@@ -240,9 +253,12 @@
         const roundedLat = Math.round(lat * 100) / 100;
         const roundedLon = Math.round(lon * 100) / 100;
 
-        H().showToast(`📍 Loading weather at ${roundedLat}°, ${roundedLon}°`);
+        H().showToast(T("globe_loading_at", { lat: roundedLat, lon: roundedLon },
+                        `📍 Loading weather at ${roundedLat}°, ${roundedLon}°`));
 
-        H().getWeatherByLocation(roundedLat, roundedLon, `Point (${roundedLat}, ${roundedLon})`);
+        H().getWeatherByLocation(roundedLat, roundedLon,
+                                 T("globe_point", { lat: roundedLat, lon: roundedLon },
+                                   `Point (${roundedLat}, ${roundedLon})`));
     }
 
     /* ---------- UTC clock caption ---------- */
@@ -258,9 +274,9 @@
             const utcMins  = String(now.getUTCMinutes()).padStart(2, "0");
             const utcSecs  = String(now.getUTCSeconds()).padStart(2, "0");
 
-            el.textContent =
-                `🕒 UTC ${utcHours}:${utcMins}:${utcSecs}  •  ` +
-                `Drag to rotate · Scroll/pinch to zoom · Click to load weather`;
+            const time = `${utcHours}:${utcMins}:${utcSecs}`;
+            el.textContent = T("globe_caption", { time },
+                `🕒 UTC ${time}  •  Drag to rotate · Scroll/pinch to zoom · Click to load weather`);
         }
 
         tick();
@@ -290,7 +306,7 @@
         const sunsetEl = w.getElement("ei-sunset");
 
         const loc = data.searched_location || {};
-        const cityName = loc.name || data.name || "Unknown";
+        const cityName = loc.name || data.name || T("unknown", null, "Unknown");
         const state = loc.state || "";
         const country = loc.country || data.sys?.country || "";
         if (nameEl) nameEl.textContent = w.formatLocation(cityName, state, country);
@@ -347,16 +363,16 @@
 
         const loc = window._loadedLocation;
         if (!loc || !Number.isFinite(loc.lat) || !Number.isFinite(loc.lon)) {
-            btn.textContent = "♡ Save this place";
+            btn.textContent = T("save_this_place", null, "♡ Save this place");
             btn.classList.remove("saved");
             return;
         }
 
         if (w.isLocationSaved(loc.lat, loc.lon)) {
-            btn.textContent = "♥ Saved";
+            btn.textContent = T("saved", null, "♥ Saved");
             btn.classList.add("saved");
         } else {
-            btn.textContent = "♡ Save this place";
+            btn.textContent = T("save_this_place", null, "♡ Save this place");
             btn.classList.remove("saved");
         }
     }
@@ -664,10 +680,10 @@
 
         const lockBtn = w.getElement("toggle-lock");
         if (lockBtn) {
-            lockBtn.textContent = globeLockedOnCity ? "🔒 Locked on city" : "🔓 Auto-rotate";
+            lockBtn.textContent = lockLabel();
             lockBtn.addEventListener("click", () => {
                 globeLockedOnCity = !globeLockedOnCity;
-                lockBtn.textContent = globeLockedOnCity ? "🔒 Locked on city" : "🔓 Auto-rotate";
+                lockBtn.textContent = lockLabel();
                 if (globeLockedOnCity) {
                     autoRotatePausedUntil = Infinity;
                 } else {
@@ -698,6 +714,14 @@
         rotateGlobeTo,
         updateSavedMarkers,
         renderPanel,
-        updateSaveButton
+        updateSaveButton,
+        // After a language switch: the texts earth.js writes itself.
+        refreshLanguage() {
+            const w = H();
+            const lockBtn = w.getElement && w.getElement("toggle-lock");
+            if (lockBtn) lockBtn.textContent = lockLabel();
+            updateSaveButton();
+            if (window._currentWeatherData) renderPanel(window._currentWeatherData);
+        }
     };
 })();

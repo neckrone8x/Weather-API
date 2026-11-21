@@ -61,6 +61,44 @@ body.night-theme {
     gap: 8px;
     align-items: center;
 }
+/* EN | SW language switch: each half is a full 40px-high tap target */
+.lang-switch {
+    display: flex;
+    align-items: center;
+    height: 40px;
+    padding: 0 2px;
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.15);
+}
+.lang-btn {
+    min-width: 40px;
+    height: 40px;
+    padding: 0 8px;
+    border: none;
+    border-radius: 20px;
+    background: transparent;
+    color: white;
+    font-size: 13px;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    opacity: 0.65;
+    transition: background 0.2s, opacity 0.2s;
+}
+.lang-btn.active {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.25);
+}
+.lang-btn:focus-visible {
+    outline: 2px solid #fbbf24;
+    outline-offset: 1px;
+}
+.lang-sep {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 12px;
+    padding: 0 1px;
+    user-select: none;
+}
 .theme-toggle-btn {
     background: rgba(255, 255, 255, 0.15);
     border: none;
@@ -894,6 +932,8 @@ body.night-theme {
     body { padding: 8px; }
     .weather-card { width: 100%; margin: 8px auto; padding: 20px 12px; border-radius: 20px; }
     .brand { font-size: 14px; }
+    .top-actions { gap: 6px; }
+    .lang-btn { min-width: 36px; padding: 0 6px; }
     .search-box { flex-direction: column; gap: 8px; }
     .search-input-wrapper, #search-button { width: 100%; }
     #search-button { height: 46px; }

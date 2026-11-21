@@ -1112,5 +1112,158 @@ class CleanupTests(unittest.TestCase):
             self.assertNotIn("${" + var + "}", html)
 
 
+class LanguageTests(unittest.TestCase):
+    """W-7b1: ?lang=sw gives Kiswahili, anything else English, never mixed."""
+
+    RAIN_NOW = dict(CURRENT, weather=[{"id": 500, "icon": "10d", "description": "light rain"}])
+    RAIN_FC = dict(FORECAST, list=[dict(FORECAST["list"][0],
+                                        weather=[{"id": 502, "icon": "10d",
+                                                  "description": "heavy intensity rain"}])])
+
+    def setUp(self):
+        weather_app.cache.clear()
+        weather_app.rate_limiter.reset()
+        self.client = weather_app.app.test_client()
+        self.calls = []
+        self.features = []
+
+        def handler(url, params=None, **kw):
+            self.calls.append(url)
+            if "data/2.5/weather" in url:
+                return FakeResp(200, self.RAIN_NOW)
+            if "data/2.5/forecast" in url:
+                return FakeResp(200, self.RAIN_FC)
+            if "usgs" in url:
+                return FakeResp(200, {"features": self.features})
+            return router(url, params, **kw)
+        patcher = mock.patch.object(weather_app.http, "get", side_effect=handler)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def full(self, lang=None):
+        q = f"&lang={lang}" if lang is not None else ""
+        r = self.client.get(f"/weather-full?lat=-0.1&lon=34.75{q}")
+        self.assertEqual(r.status_code, 200)
+        return r
+
+    def test_request_lang(self):
+        for q, want in (("sw", "sw"), ("SW", "sw"), (" sw ", "sw"), ("en", "en"),
+                        ("fr", "en"), ("", "en"), ("sw-KE", "en"), ("<script>", "en")):
+            with weather_app.app.test_request_context(f"/?lang={q}"):
+                self.assertEqual(weather_app.request_lang(), want, q)
+        with weather_app.app.test_request_context("/"):
+            self.assertEqual(weather_app.request_lang(), "en")
+        self.assertEqual(weather_app.request_lang(), "en")     # no request at all
+
+    def test_sw_weather_full_in_kiswahili(self):
+        r = self.full("sw")
+        self.assertEqual(r.headers["Content-Language"], "sw")
+        data = r.get_json()
+        self.assertEqual(data["weather"]["weather"][0]["description"], "mvua nyepesi")
+        self.assertEqual(data["forecast"]["list"][0]["weather"][0]["description"], "mvua kubwa")
+        self.assertEqual([d["weather"]["description"] for d in data["forecast"]["daily"]],
+                         ["mvua nyepesi", "anga safi"])           # WMO 61 and 0
+        self.assertEqual(data["weather"]["weather"][0]["id"], 500)   # only the words change
+
+    def test_unknown_lang_falls_back_to_english(self):
+        for lang in ("fr", "xx", "", None):
+            r = self.full(lang)
+            self.assertEqual(r.headers["Content-Language"], "en")
+            data = r.get_json()
+            self.assertEqual(data["weather"]["weather"][0]["description"], "light rain")
+            self.assertEqual(data["forecast"]["daily"][1]["weather"]["description"], "clear sky")
+
+    def test_languages_have_separate_replies_and_never_mix(self):
+        en1 = self.full("en").get_json()
+        sw = self.full("sw").get_json()
+        en2 = self.full("en").get_json()
+        # One call each to OWM: the shared cache holds the data, not a language.
+        self.assertEqual(sum("data/2.5/weather" in u for u in self.calls), 1)
+        self.assertEqual(sum("data/2.5/forecast" in u for u in self.calls), 1)
+        self.assertEqual(en1, en2)                                   # sw did not leak into en
+        self.assertNotEqual(en1["weather"]["weather"], sw["weather"]["weather"])
+        cached = weather_app.cache.get("cur:-0.10,34.75")
+        self.assertEqual(cached["weather"][0]["description"], "light rain")   # still English
+        # Browser / service-worker / CDN caches key on the URL, and the URL has the lang.
+        r_en = self.full("en")
+        r_sw = self.full("sw")
+        self.assertIn("public", r_en.headers["Cache-Control"])
+        self.assertNotEqual(r_en.get_data(), r_sw.get_data())
+
+    def test_single_weather_and_air_in_kiswahili(self):
+        w = self.client.get("/weather?lat=-0.1&lon=34.75&lang=sw").get_json()
+        self.assertEqual(w["weather"][0]["description"], "mvua nyepesi")
+        self.assertEqual(self.client.get("/air?lat=-0.1&lon=34.75&lang=sw").get_json()["label"],
+                         "Ya kuridhisha")
+        self.assertEqual(self.client.get("/air?lat=-0.1&lon=34.75&lang=de").get_json()["label"],
+                         "Fair")
+
+    def test_error_messages_in_kiswahili(self):
+        r = self.client.get("/weather?lat=999&lon=0&lang=sw")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.get_json()["message"], "Viwianishi viko nje ya kiwango")
+        r = self.client.get("/weather?lat=999&lon=0&lang=zz")
+        self.assertEqual(r.get_json()["message"], "Coordinates out of range")
+        r = self.client.get("/locations?city=&lang=sw")
+        self.assertEqual(r.get_json()["message"], "Tafadhali andika jina la mji")
+
+    def test_rate_limit_message_in_kiswahili(self):
+        self.addCleanup(weather_app.rate_limiter.reset)
+        ip = {"X-Forwarded-For": "41.90.1.2"}
+        with mock.patch.object(weather_app, "RATE_LIMIT_ALL", 1), self.assertLogs("weather", "WARNING"):
+            self.client.get("/weather?lat=-0.1&lon=34.75&lang=sw", headers=ip)
+            r = self.client.get("/weather?lat=-0.1&lon=34.75&lang=sw", headers=ip)
+        self.assertEqual(r.status_code, 429)
+        self.assertEqual(r.get_json()["error"], "rate_limited")      # the code stays the same
+        self.assertTrue(r.get_json()["message"].startswith("Maombi ni mengi mno"))
+
+    def test_feedback_message_in_kiswahili(self):
+        with feedback_configured():
+            r = self.client.post("/feedback?lang=sw", json={"message": "   "})
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.get_json()["message"], "Ujumbe unahitajika")
+
+    def test_every_server_message_has_kiswahili(self):
+        import re
+        with open(weather_app.__file__, encoding="utf-8") as fh:
+            src = fh.read()
+        said = set(re.findall(r'ApiError\(\d+, "([^"]+)"\)', src))
+        said |= set(re.findall(r'tr\("([^"]+)"\)', src))
+        said.add("Weather is temporarily unavailable, please try again later")
+        self.assertGreater(len(said), 15)
+        for text in said:
+            self.assertIn(text, weather_app.SW_MESSAGES, text)
+
+    def test_quake_place_and_alert_in_both_languages(self):
+        lat, lon = KISUMU
+        self.features = [quake("q1", 4.8, 46, place="46 km SSE of Ikungi, Tanzania")]
+        en = self.client.get(f"/local-alerts?lat={lat}&lon={lon}&lang=en").get_json()
+        sw = self.client.get(f"/local-alerts?lat={lat}&lon={lon}&lang=sw").get_json()
+        self.assertEqual(en["quakes"][0]["place"], "46 km SSE of Ikungi, Tanzania")
+        self.assertEqual(sw["quakes"][0]["place"], "km 46 kusini-mashariki mwa Ikungi, Tanzania")
+        self.assertEqual(sw["quakes"][0]["magnitude"], 4.8)      # free for everyone, both languages
+        self.assertEqual(sum("usgs" in u for u in self.calls), 1)
+        again = self.client.get(f"/local-alerts?lat={lat}&lon={lon}&lang=en").get_json()
+        self.assertEqual(again["quakes"][0]["place"], "46 km SSE of Ikungi, Tanzania")
+
+    def test_quake_place_forms(self):
+        qp = weather_app.quake_place
+        self.assertEqual(qp("10 km N of Nakuru, Kenya", "sw"), "km 10 kaskazini mwa Nakuru, Kenya")
+        self.assertEqual(qp("3.5 km WNW of Kisumu, Kenya", "sw"),
+                         "km 3.5 kaskazini-magharibi mwa Kisumu, Kenya")
+        self.assertEqual(qp("Fiji region", "sw"), "Fiji region")
+        self.assertEqual(qp("Unknown location", "sw"), "Mahali pasipojulikana")
+        self.assertEqual(qp("10 km N of Nakuru, Kenya", "en"), "10 km N of Nakuru, Kenya")
+
+    def test_condition_names_kenyan_kiswahili(self):
+        ct = weather_app.condition_text
+        for cid, want in ((500, "mvua nyepesi"), (502, "mvua kubwa"), (501, "mvua ya wastani"),
+                          (211, "radi na mvua"), (800, "anga safi"), (804, "mawingu mazito"),
+                          (741, "ukungu"), (601, "theluji")):
+            self.assertEqual(ct(cid, "x", "sw"), want)
+        self.assertEqual(ct(999, "odd sky", "sw"), "odd sky")
+        self.assertEqual(ct(500, "light rain", "en"), "light rain")
+
+
 if __name__ == "__main__":
     unittest.main()

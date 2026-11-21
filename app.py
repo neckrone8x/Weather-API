@@ -18,6 +18,7 @@ import json
 import logging
 import math
 import os
+import re
 import signal
 import sys
 import threading
@@ -197,20 +198,193 @@ class WeatherUnavailable(ApiError):
         super().__init__(503, "Weather is temporarily unavailable, please try again later")
 
 
+# =================================
+# LANGUAGE — English (default) or Kiswahili, from ?lang=
+# The caches above hold the outside services' data as it came (no language
+# in it); sentences are put into the visitor's language on the way out, on
+# copies, so a cached object is never changed and languages never mix. Every
+# reply that carries text in a language is keyed by its URL, which includes
+# ?lang= (browser, service worker and any CDN cache).
+# =================================
+LANGS = ("en", "sw")
+
+
+def request_lang():
+    """'sw' or 'en' (anything else, or no request, means English)."""
+    try:
+        value = (request.args.get("lang") or "").strip().lower()
+    except RuntimeError:          # outside a request
+        return "en"
+    return value if value in LANGS else "en"
+
+
+# Every sentence the server writes itself, by its English text.
+SW_MESSAGES = {
+    "Weather service timed out": "Huduma ya hali ya hewa imechelewa kujibu",
+    "Weather service unavailable": "Huduma ya hali ya hewa haipatikani",
+    "Location not found": "Mahali hapajapatikana",
+    "Weather service is busy, please try again shortly":
+        "Huduma ya hali ya hewa ina shughuli nyingi, tafadhali jaribu tena baadaye kidogo",
+    "Weather service error": "Hitilafu ya huduma ya hali ya hewa",
+    "Weather service returned an invalid response":
+        "Huduma ya hali ya hewa imetuma jibu lisilo sahihi",
+    "Invalid coordinates": "Viwianishi si sahihi",
+    "Coordinates out of range": "Viwianishi viko nje ya kiwango",
+    "lat and lon required": "lat na lon zinahitajika",
+    "City not found": "Mji haujapatikana",
+    "Please enter a city": "Tafadhali andika jina la mji",
+    "Weather is temporarily unavailable, please try again later":
+        "Hali ya hewa haipatikani kwa muda, tafadhali jaribu tena baadaye",
+    "An outside service timed out": "Huduma ya nje imechelewa kujibu",
+    "An outside service failed": "Huduma ya nje imeshindwa",
+    "Too many requests. Please wait a moment and try again.":
+        "Maombi ni mengi mno. Tafadhali subiri kidogo kisha ujaribu tena.",
+    "UV index unavailable": "Kiwango cha UV hakipatikani",
+    "Sorry, feedback isn't available right now. Please try again later.":
+        "Samahani, maoni hayapokelewi kwa sasa. Tafadhali jaribu tena baadaye.",
+    "Feedback not configured": "Maoni hayajawekwa tayari",
+    "Too many messages, please try again later":
+        "Ujumbe ni mwingi mno, tafadhali jaribu tena baadaye",
+    "Message required": "Ujumbe unahitajika",
+    "Feedback service timed out, please try again":
+        "Huduma ya maoni imechelewa kujibu, tafadhali jaribu tena",
+    "Could not send feedback right now": "Imeshindikana kutuma maoni kwa sasa",
+    "Global alerts unavailable": "Tahadhari za dunia hazipatikani",
+    "Unknown location": "Mahali pasipojulikana",
+    "Unknown": "Haijulikani",
+    # Air quality (AQI_LABELS)
+    "Good": "Nzuri", "Fair": "Ya kuridhisha", "Moderate": "Wastani",
+    "Poor": "Mbaya", "Very Poor": "Mbaya sana",
+}
+
+
+def tr(text, lang=None):
+    """`text` in the request's language (English when there is no Kiswahili)."""
+    lang = lang or request_lang()
+    if lang == "sw":
+        return SW_MESSAGES.get(text, text)
+    return text
+
+
+# Weather condition names by OpenWeatherMap condition id (simple Kenyan Kiswahili).
+SW_CONDITIONS = {
+    200: "radi na mvua nyepesi", 201: "radi na mvua", 202: "radi na mvua kubwa",
+    210: "radi nyepesi", 211: "radi na mvua", 212: "radi kali",
+    221: "radi za hapa na pale", 230: "radi na manyunyu", 231: "radi na manyunyu",
+    232: "radi na manyunyu mengi",
+    300: "manyunyu mepesi", 301: "manyunyu", 302: "manyunyu mengi",
+    310: "manyunyu na mvua nyepesi", 311: "manyunyu na mvua", 312: "manyunyu na mvua kubwa",
+    313: "mvua ya rasharasha na manyunyu", 314: "mvua kubwa ya rasharasha na manyunyu",
+    321: "manyunyu ya rasharasha",
+    500: "mvua nyepesi", 501: "mvua ya wastani", 502: "mvua kubwa",
+    503: "mvua kubwa sana", 504: "mvua kubwa mno", 511: "mvua ya barafu",
+    520: "rasharasha nyepesi", 521: "rasharasha", 522: "rasharasha kubwa",
+    531: "rasharasha za hapa na pale",
+    600: "theluji nyepesi", 601: "theluji", 602: "theluji nyingi",
+    611: "theluji na mvua", 612: "theluji na mvua nyepesi", 613: "theluji na mvua",
+    615: "mvua nyepesi na theluji", 616: "mvua na theluji",
+    620: "theluji nyepesi ya rasharasha", 621: "theluji ya rasharasha",
+    622: "theluji nyingi ya rasharasha",
+    701: "ukungu mwepesi", 711: "moshi", 721: "ukungu wa vumbi", 731: "vumbi",
+    741: "ukungu", 751: "mchanga", 761: "vumbi", 762: "majivu ya volkano",
+    771: "upepo mkali", 781: "kimbunga",
+    800: "anga safi", 801: "mawingu machache", 802: "mawingu kiasi",
+    803: "mawingu mengi", 804: "mawingu mazito",
+}
+
+
+def condition_text(cond_id, description, lang):
+    """A condition's description in `lang` (the English one when unknown)."""
+    if lang == "sw":
+        try:
+            return SW_CONDITIONS.get(int(cond_id), description)
+        except (TypeError, ValueError):
+            return description
+    return description
+
+
+def _localize_conditions(items, lang):
+    """Copies of OWM 'weather' entries with the description in `lang`."""
+    out = []
+    for w in items or []:
+        if isinstance(w, dict):
+            w = dict(w, description=condition_text(w.get("id"), w.get("description", ""), lang))
+        out.append(w)
+    return out
+
+
+def localize_weather(data, lang):
+    """A copy of a current-weather reply in `lang` (the same object for English)."""
+    if lang == "en" or not isinstance(data, dict):
+        return data
+    data = dict(data)
+    if "weather" in data:
+        data["weather"] = _localize_conditions(data.get("weather"), lang)
+    return data
+
+
+def localize_forecast(data, lang):
+    """A copy of a forecast reply (3-hour list + daily outlook) in `lang`."""
+    if lang == "en" or not isinstance(data, dict):
+        return data
+    data = dict(data)
+    if isinstance(data.get("list"), list):
+        data["list"] = [dict(i, weather=_localize_conditions(i.get("weather"), lang))
+                        if isinstance(i, dict) else i for i in data["list"]]
+    if isinstance(data.get("daily"), list):
+        days = []
+        for d in data["daily"]:
+            if isinstance(d, dict) and isinstance(d.get("weather"), dict):
+                w = d["weather"]
+                d = dict(d, weather=dict(w, description=condition_text(
+                    w.get("id"), w.get("description", ""), lang)))
+            days.append(d)
+        data["daily"] = days
+    return data
+
+
+# USGS places look like "46 km SE of Ikungi, Tanzania".
+_QUAKE_PLACE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*km\s+([NSEW]{1,3})\s+of\s+(.+?)\s*$", re.I)
+SW_DIRECTIONS = {
+    "N": "kaskazini", "S": "kusini", "E": "mashariki", "W": "magharibi",
+    "NE": "kaskazini-mashariki", "NW": "kaskazini-magharibi",
+    "SE": "kusini-mashariki", "SW": "kusini-magharibi",
+}
+
+
+def quake_place(place, lang):
+    """'46 km SE of Ikungi, Tanzania' -> 'km 46 kusini-mashariki mwa Ikungi, Tanzania'."""
+    if lang != "sw":
+        return place
+    if place == "Unknown location":
+        return tr(place, lang)
+    m = _QUAKE_PLACE.match(str(place or ""))
+    if not m:
+        return place          # e.g. "Fiji region": a name, kept as USGS wrote it
+    km, direction, where = m.group(1), m.group(2).upper(), m.group(3)
+    # Three letters (SSE) -> the nearest two-letter direction (SE).
+    if len(direction) == 3:
+        direction = direction[1:]
+    word = SW_DIRECTIONS.get(direction)
+    if not word:
+        return place
+    return f"km {km} {word} mwa {where}"
+
+
 @app.errorhandler(ApiError)
 def handle_api_error(err):
     if isinstance(err, WeatherUnavailable):
         return jsonify({"error": "weather_unavailable", "cod": 503,
-                        "message": err.message}), 503
-    return jsonify({"cod": err.status, "message": err.message}), err.status
+                        "message": tr(err.message)}), 503
+    return jsonify({"cod": err.status, "message": tr(err.message)}), err.status
 
 
 @app.errorhandler(UpstreamError)
 def handle_upstream_error(err):
     # Safety net: endpoints normally turn these into their own messages.
     if err.kind == "timeout":
-        return jsonify({"cod": 504, "message": "An outside service timed out"}), 504
-    return jsonify({"cod": 502, "message": "An outside service failed"}), 502
+        return jsonify({"cod": 504, "message": tr("An outside service timed out")}), 504
+    return jsonify({"cod": 502, "message": tr("An outside service failed")}), 502
 
 
 def wait_for(future, timeout, message="Weather service timed out"):
@@ -837,6 +1011,8 @@ def add_cache_headers(resp):
     # Let browsers/SW reuse API responses briefly; never cache errors.
     if request.path in API_PATHS and resp.status_code == 200 and "Cache-Control" not in resp.headers:
         resp.headers["Cache-Control"] = "public, max-age=120"
+    if request.path in API_PATHS or request.path == "/feedback":
+        resp.headers["Content-Language"] = request_lang()
     return resp
 
 
@@ -913,7 +1089,7 @@ def _apply_rate_limits():
         return None
     log.warning("Rate limited %s on %s (retry in %ss)", ip, request.path, wait)
     resp = jsonify({"error": "rate_limited",
-                    "message": "Too many requests. Please wait a moment and try again.",
+                    "message": tr("Too many requests. Please wait a moment and try again."),
                     "retry_after": wait})
     resp.status_code = 429
     resp.headers["Retry-After"] = str(wait)
@@ -983,7 +1159,7 @@ def locations():
 def weather():
     lat, lon, searched = resolve_location()
     w, _ = attach_location(get_current(lat, lon), None, searched)
-    return jsonify(w)
+    return jsonify(localize_weather(w, request_lang()))
 
 
 # =================================
@@ -1011,7 +1187,8 @@ def weather_full():
         f["daily"] = om["daily"]
         w["uv"] = {"value": om["uv"], "max_today": om["uv_max_today"]}
 
-    return jsonify({"weather": w, "forecast": f})
+    lang = request_lang()
+    return jsonify({"weather": localize_weather(w, lang), "forecast": localize_forecast(f, lang)})
 
 
 # =================================
@@ -1031,7 +1208,7 @@ def uv_index():
             out["saved_at"] = om["saved_at"]
         return jsonify(out)
 
-    return jsonify({"value": None, "message": "UV index unavailable"})
+    return jsonify({"value": None, "message": tr("UV index unavailable")})
 
 
 # =================================
@@ -1047,7 +1224,7 @@ def air_pollution():
         data = owm_get("/data/2.5/air_pollution", {"lat": lat, "lon": lon},
                        cache_key=f"air:{coord_key(lat, lon)}", ttl=TTL_AIR, units=False)
     except ApiError as e:
-        return jsonify({"aqi": None, "message": e.message})
+        return jsonify({"aqi": None, "message": tr(e.message)})
 
     items = data.get("list") or []
     if not items:
@@ -1055,7 +1232,7 @@ def air_pollution():
     aqi = items[0].get("main", {}).get("aqi")
     return jsonify({
         "aqi": aqi,
-        "label": AQI_LABELS.get(aqi, "Unknown"),
+        "label": tr(AQI_LABELS.get(aqi, "Unknown")),
         "components": items[0].get("components", {}),
     })
 
@@ -1170,15 +1347,15 @@ _check_feedback_config()
 @app.route("/feedback", methods=["POST"])
 def feedback():
     if not (FEEDBACK_TO_EMAIL and FEEDBACK_FROM_EMAIL):
-        return jsonify({"ok": False, "message": "Sorry, feedback isn't available right now. "
-                                                "Please try again later."}), 503
+        return jsonify({"ok": False, "message": tr("Sorry, feedback isn't available right now. "
+                                                   "Please try again later.")}), 503
     if not SENDGRID_API_KEY:
-        return jsonify({"ok": False, "message": "Feedback not configured"}), 500
+        return jsonify({"ok": False, "message": tr("Feedback not configured")}), 500
 
     rl_key = f"fb:{client_ip()}"
     count = cache.get(rl_key) or 0
     if count >= FEEDBACK_LIMIT:
-        return jsonify({"ok": False, "message": "Too many messages, please try again later"}), 429
+        return jsonify({"ok": False, "message": tr("Too many messages, please try again later")}), 429
     cache.set(rl_key, count + 1, FEEDBACK_WINDOW)
 
     data = request.get_json(silent=True) or {}
@@ -1189,7 +1366,7 @@ def feedback():
     page_url = str(data.get("page_url", ""))[:200]
 
     if not message.strip():
-        return jsonify({"ok": False, "message": "Message required"}), 400
+        return jsonify({"ok": False, "message": tr("Message required")}), 400
 
     body = (
         "New feedback from Neckrone8x Weather\n\n"
@@ -1215,13 +1392,13 @@ def feedback():
     except UpstreamError as e:
         log.warning("Feedback send failed: %s", e.kind)
         if e.kind == "timeout":
-            return jsonify({"ok": False, "message": "Feedback service timed out, please try again"}), 504
-        return jsonify({"ok": False, "message": "Could not send feedback right now"}), 502
+            return jsonify({"ok": False, "message": tr("Feedback service timed out, please try again")}), 504
+        return jsonify({"ok": False, "message": tr("Could not send feedback right now")}), 502
 
     if r.status in (200, 201, 202):
         return jsonify({"ok": True})
     log.warning("SendGrid returned %s", r.status)
-    return jsonify({"ok": False, "message": "Could not send feedback right now"}), 502
+    return jsonify({"ok": False, "message": tr("Could not send feedback right now")}), 502
 
 
 # =================================
@@ -1249,7 +1426,7 @@ def global_alerts():
             features = (r.json() or {}).get("features", [])
     except UpstreamError as e:
         log.warning("GDACS error: %s", e.kind)
-        return jsonify({"alerts": [], "error": "Global alerts unavailable"})
+        return jsonify({"alerts": [], "error": tr("Global alerts unavailable")})
 
     alerts = []
     for f in features:
@@ -1395,7 +1572,7 @@ def local_alerts():
     key = f"local:{coord_key(lat, lon)}"
     cached = cache.get(key)
     if cached:
-        return jsonify(cached)
+        return jsonify(localize_local_alerts(cached, request_lang()))
 
     f_nws = submit(_nws_alerts, lat, lon)
     f_usgs = submit(_usgs_quakes, lat, lon)
@@ -1410,7 +1587,16 @@ def local_alerts():
     result = {"alerts": alerts or [], "quakes": quakes or []}
     if alerts is not None and quakes is not None:   # don't keep a failure for 15 min
         cache.set(key, result, TTL_ALERTS)
-    return jsonify(result)
+    return jsonify(localize_local_alerts(result, request_lang()))
+
+
+def localize_local_alerts(result, lang):
+    """A copy with quake places in `lang`. Free for everyone, in every language.
+    (NWS alert texts stay as the US weather service wrote them, in English.)"""
+    if lang == "en":
+        return result
+    return dict(result, quakes=[dict(q, place=quake_place(q.get("place"), lang))
+                                for q in result.get("quakes") or []])
 
 
 # =================================
