@@ -58,6 +58,16 @@ OPEN_METEO = {
 }
 
 
+TO_ADDR = "inbox@example.com"
+FROM_ADDR = "sender@example.com"
+
+
+def feedback_configured(key=SENDGRID_SECRET, to=TO_ADDR, sender=FROM_ADDR):
+    """Feedback set up as if FEEDBACK_* and SENDGRID_API_KEY were in the env."""
+    return mock.patch.multiple(weather_app, SENDGRID_API_KEY=key,
+                               FEEDBACK_TO_EMAIL=to, FEEDBACK_FROM_EMAIL=sender)
+
+
 def router(url, params=None, **kw):
     if "geo/1.0/direct" in url:
         return FakeResp(200, GEO)
@@ -140,7 +150,7 @@ class WeatherApiTests(unittest.TestCase):
 
         self.mock_get.side_effect = lambda *a, **k: FakeResp(401)
         r = self.client.get("/weather?lat=3&lon=4")
-        self.assertEqual(r.status_code, 502)
+        self.assertEqual(r.status_code, 503)        # W-3: rejected key -> 503, not 502
         self.assertNotIn(SECRET, r.get_data(as_text=True))
 
     def test_rate_limit_maps_to_503(self):
@@ -173,16 +183,12 @@ class WeatherApiTests(unittest.TestCase):
         self.assertFalse(weather_app.is_public_ip("::1"))
 
     def test_feedback_rate_limited(self):
-        weather_app.SENDGRID_API_KEY = "x"
-        try:
-            with mock.patch.object(weather_app.http, "post",
-                                   return_value=FakeResp(202)):
-                codes = [self.client.post("/feedback", json={"message": "hi"}).status_code
-                         for _ in range(6)]
-            self.assertEqual(codes[:5], [200] * 5)
-            self.assertEqual(codes[5], 429)
-        finally:
-            weather_app.SENDGRID_API_KEY = None
+        with feedback_configured(), \
+                mock.patch.object(weather_app.http, "post", return_value=FakeResp(202)):
+            codes = [self.client.post("/feedback", json={"message": "hi"}).status_code
+                     for _ in range(6)]
+        self.assertEqual(codes[:5], [200] * 5)
+        self.assertEqual(codes[5], 429)
 
 
 class SlowServiceTests(unittest.TestCase):
@@ -284,23 +290,19 @@ class SlowServiceTests(unittest.TestCase):
         self.assertLess(took, 1.6)
 
     def test_slow_sendgrid_gives_504(self):
-        weather_app.SENDGRID_API_KEY = SENDGRID_SECRET
-        try:
+        with feedback_configured():
             r = self.assert_fast("/feedback", 504, method="post", json={"message": "hi"})
-            self.assertFalse(r.get_json()["ok"])
-            self.assertNotIn(SENDGRID_SECRET, r.get_data(as_text=True))
-        finally:
-            weather_app.SENDGRID_API_KEY = None
+        self.assertFalse(r.get_json()["ok"])
+        self.assertNotIn(SENDGRID_SECRET, r.get_data(as_text=True))
 
 
 class SendGridTests(unittest.TestCase):
     def setUp(self):
         weather_app.cache.clear()
         self.client = weather_app.app.test_client()
-        weather_app.SENDGRID_API_KEY = SENDGRID_SECRET
-
-    def tearDown(self):
-        weather_app.SENDGRID_API_KEY = None
+        patcher = feedback_configured()
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def post(self, **post_kw):
         with mock.patch.object(weather_app.http, "post", **post_kw) as m:
@@ -314,6 +316,8 @@ class SendGridTests(unittest.TestCase):
         args, kw = m.call_args
         self.assertEqual(args[0], weather_app.SENDGRID_URL)
         self.assertEqual(kw["headers"]["Authorization"], f"Bearer {SENDGRID_SECRET}")
+        self.assertEqual(kw["json"]["from"], {"email": FROM_ADDR})
+        self.assertEqual(kw["json"]["personalizations"][0]["to"], [{"email": TO_ADDR}])
         self.assertEqual(kw["json"]["reply_to"], {"email": "a@b.co"})
         self.assertIn("hi", kw["json"]["content"][0]["value"])
         self.assertIsNotNone(kw["timeout"])
@@ -374,22 +378,17 @@ class UpstreamHelperTests(unittest.TestCase):
             seen.append((url, kw))
             return FakeResp(202)
 
-        weather_app.SENDGRID_API_KEY = SENDGRID_SECRET
-        try:
-            with mock.patch.object(weather_app.http, "get", side_effect=spy_get), \
-                    mock.patch.object(weather_app.http, "post", side_effect=spy_post), \
-                    mock.patch.object(weather_app, "upstream", wraps=weather_app.upstream) as up:
-                for path in ["/weather-full?city=Kisumu", "/weather?lat=1&lon=1",
-                             "/forecast?lat=2&lon=2", "/air?lat=3&lon=3",
-                             "/locations?city=Nairobi", "/reverse?lat=4&lon=4",
-                             "/global-alerts", "/local-alerts?lat=5&lon=5"]:
-                    self.assertEqual(self.client.get(path).status_code, 200, path)
-                self.client.get("/my-location", headers={"X-Forwarded-For": "8.8.8.8"})
-                weather_app.cache.set("om:down", True, 60)     # force the One Call fallback
-                self.client.get("/uv?lat=6&lon=6")
-                self.client.post("/feedback", json={"message": "hi"})
-        finally:
-            weather_app.SENDGRID_API_KEY = None
+        with feedback_configured(), \
+                mock.patch.object(weather_app.http, "get", side_effect=spy_get), \
+                mock.patch.object(weather_app.http, "post", side_effect=spy_post), \
+                mock.patch.object(weather_app, "upstream", wraps=weather_app.upstream) as up:
+            for path in ["/weather-full?city=Kisumu", "/weather?lat=1&lon=1",
+                         "/forecast?lat=2&lon=2", "/air?lat=3&lon=3",
+                         "/locations?city=Nairobi", "/reverse?lat=4&lon=4",
+                         "/global-alerts", "/local-alerts?lat=5&lon=5", "/uv?lat=6&lon=6"]:
+                self.assertEqual(self.client.get(path).status_code, 200, path)
+            self.client.get("/my-location", headers={"X-Forwarded-For": "8.8.8.8"})
+            self.client.post("/feedback", json={"message": "hi"})
 
         providers = {c.args[0] for c in up.call_args_list}
         self.assertEqual(providers, {"openweathermap", "open-meteo", "nominatim", "ipapi",
@@ -440,6 +439,219 @@ class UpstreamHelperTests(unittest.TestCase):
         r = self.client.get("/health")
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.get_json()["ok"])
+
+
+def expire_fresh():
+    """Make every fresh cache entry expire now; the saved "stale:" copies stay."""
+    with weather_app.cache._lock:
+        for key in [k for k in weather_app.cache._data if not k.startswith("stale:")]:
+            del weather_app.cache._data[key]
+
+
+def ttl_left(key):
+    expires, _ = weather_app.cache._data[key]
+    return expires - time.time()
+
+
+class UvTests(unittest.TestCase):
+    """W-3 #1: UV from Open-Meteo only, 30 min cache, 60 s backoff, null -> hidden tile."""
+
+    def setUp(self):
+        weather_app.cache.clear()
+        self.client = weather_app.app.test_client()
+        self.om_replies = []      # queued Open-Meteo replies; empty = normal reply
+        self.urls = []
+
+        def handler(url, params=None, **kw):
+            self.urls.append(url)
+            if "open-meteo" in url and self.om_replies:
+                reply = self.om_replies.pop(0)
+                if isinstance(reply, Exception):
+                    raise reply
+                return reply
+            return router(url, params, **kw)
+        patcher = mock.patch.object(weather_app.http, "get", side_effect=handler)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def om_calls(self):
+        return sum("open-meteo" in u for u in self.urls)
+
+    def test_uv_cached_30_minutes_per_rounded_coordinates(self):
+        self.assertEqual(self.client.get("/uv?lat=-0.1001&lon=34.7502").get_json()["value"], 7.4)
+        self.client.get("/uv?lat=-0.1&lon=34.75")            # same 2-decimal cell
+        self.assertEqual(self.om_calls(), 1)
+        self.assertAlmostEqual(ttl_left("om:-0.10,34.75"), 30 * 60, delta=5)
+        self.client.get("/uv?lat=-0.2&lon=34.75")            # another cell
+        self.assertEqual(self.om_calls(), 2)
+
+    def test_no_openweathermap_one_call_fallback(self):
+        self.om_replies = [requests.exceptions.ConnectionError("down")]
+        r = self.client.get("/uv?lat=1&lon=1").get_json()
+        self.assertIsNone(r["value"])
+        self.assertFalse([u for u in self.urls if "openweathermap" in u])
+        with open(weather_app.__file__, encoding="utf-8") as fh:
+            self.assertNotIn("/data/3.0/onecall", fh.read())
+
+    def test_429_backs_off_60_seconds_and_serves_last_good_value(self):
+        self.client.get("/uv?lat=-0.1&lon=34.75")             # good value saved
+        expire_fresh()                                         # ... 30 min later
+        self.om_replies = [FakeResp(429)]
+        r = self.client.get("/uv?lat=-0.1&lon=34.75").get_json()
+        self.assertEqual(r["value"], 7.4)                      # old but good
+        self.assertTrue(r["stale"])
+        self.assertIsInstance(r["saved_at"], int)
+        self.assertAlmostEqual(ttl_left("om:down"), 60, delta=2)
+
+        self.client.get("/uv?lat=-0.1&lon=34.75")
+        self.client.get("/uv?lat=5&lon=5")                     # any place: still backing off
+        self.client.get("/weather-full?lat=6&lon=6")
+        self.assertEqual(self.om_calls(), 2)                   # 1 good + the 429, no more
+
+        del weather_app.cache._data["om:down"]                 # ... 60 s later
+        self.client.get("/uv?lat=-0.1&lon=34.75")
+        self.assertEqual(self.om_calls(), 3)
+
+    def test_failure_also_backs_off(self):
+        self.om_replies = [requests.exceptions.ReadTimeout("slow")]
+        self.client.get("/uv?lat=1&lon=1")
+        self.client.get("/uv?lat=2&lon=2")
+        self.assertEqual(self.om_calls(), 1)
+
+    def test_uv_is_null_when_nothing_was_ever_saved(self):
+        self.om_replies = [FakeResp(429)]
+        r = self.client.get("/uv?lat=3&lon=3")
+        self.assertEqual(r.status_code, 200)
+        self.assertIsNone(r.get_json()["value"])
+        self.assertNotIn("stale", r.get_json())
+
+    def test_page_hides_the_uv_tile_when_uv_is_null(self):
+        path = os.path.join(os.path.dirname(weather_app.__file__), "static", "app.js")
+        with open(path, encoding="utf-8") as fh:
+            js = fh.read()
+        self.assertIn('el.closest(".extra-detail")', js)
+        self.assertIn("setUvTile(null)", js)
+
+
+class BadKeyTests(unittest.TestCase):
+    """W-3 #2: OWM 401/403 -> saved copy if there is one, else 503 weather_unavailable."""
+
+    def setUp(self):
+        weather_app.cache.clear()
+        weather_app._key_log_last = None
+        self.client = weather_app.app.test_client()
+        self.reject = None      # None, 401 or 403 for every OpenWeatherMap call
+
+        def handler(url, params=None, **kw):
+            if self.reject and "openweathermap" in url:
+                return FakeResp(self.reject, {"cod": self.reject, "message": "Invalid API key"})
+            return router(url, params, **kw)
+        patcher = mock.patch.object(weather_app.http, "get", side_effect=handler)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_401_serves_the_saved_forecast(self):
+        good = self.client.get("/weather-full?lat=1&lon=2")
+        self.assertEqual(good.status_code, 200)
+        self.assertNotIn("X-Stale-Saved-At", good.headers)
+        expire_fresh()
+        self.reject = 401
+        with self.assertLogs("weather", level="ERROR"):
+            r = self.client.get("/weather-full?lat=1&lon=2")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.get_json()["forecast"]["list"], good.get_json()["forecast"]["list"])
+        self.assertAlmostEqual(int(r.headers["X-Stale-Saved-At"]), time.time(), delta=5)
+        self.assertEqual(r.headers["Cache-Control"], "no-store")
+
+    def test_403_with_nothing_saved_is_503_weather_unavailable(self):
+        self.reject = 403
+        with self.assertLogs("weather", level="ERROR"):
+            for path in ["/weather-full?lat=3&lon=4", "/weather?lat=3&lon=4",
+                         "/forecast?lat=3&lon=4", "/weather-full?city=Nakuru",
+                         "/locations?city=Nakuru"]:
+                r = self.client.get(path)
+                self.assertEqual(r.status_code, 503, path)
+                self.assertEqual(r.get_json()["error"], "weather_unavailable", path)
+                self.assertNotIn(SECRET, r.get_data(as_text=True))
+
+    def test_saved_city_search_still_works_with_a_bad_key(self):
+        self.client.get("/locations?city=Kisumu")
+        expire_fresh()
+        self.reject = 401
+        with self.assertLogs("weather", level="ERROR"):
+            r = self.client.get("/locations?city=Kisumu")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.get_json()["locations"][0]["name"], "Kisumu")
+
+    def test_key_error_is_logged_at_most_once_a_minute(self):
+        self.reject = 401
+        with self.assertLogs("weather", level="ERROR") as logs:
+            for i in range(4):
+                self.client.get(f"/weather?lat={i}&lon=1")
+        rejected = [l for l in logs.output if "rejected the API key" in l]
+        self.assertEqual(len(rejected), 1)
+
+        weather_app._key_log_last -= 61                        # a minute later
+        with self.assertLogs("weather", level="ERROR") as logs:
+            self.client.get("/weather?lat=9&lon=1")
+        self.assertEqual(len([l for l in logs.output if "rejected the API key" in l]), 1)
+
+
+class FeedbackConfigTests(unittest.TestCase):
+    """W-3 #3: feedback addresses only from FEEDBACK_TO_EMAIL / FEEDBACK_FROM_EMAIL."""
+
+    def setUp(self):
+        weather_app.cache.clear()
+        self.client = weather_app.app.test_client()
+
+    def test_missing_addresses_give_a_polite_503_and_send_nothing(self):
+        for to, sender in [("", ""), (TO_ADDR, ""), ("", FROM_ADDR)]:
+            with feedback_configured(to=to, sender=sender), \
+                    mock.patch.object(weather_app.http, "post") as post:
+                r = self.client.post("/feedback", json={"message": "hi"})
+            self.assertEqual(r.status_code, 503)
+            self.assertFalse(r.get_json()["ok"])
+            self.assertIn("try again later", r.get_json()["message"])
+            post.assert_not_called()
+
+    def test_startup_check_warns_when_addresses_are_missing(self):
+        with feedback_configured(to="", sender=""), \
+                self.assertLogs("weather", level="WARNING") as logs:
+            missing = weather_app._check_feedback_config()
+        self.assertEqual(missing, ["FEEDBACK_TO_EMAIL", "FEEDBACK_FROM_EMAIL"])
+        self.assertIn("FEEDBACK_TO_EMAIL and FEEDBACK_FROM_EMAIL", logs.output[0])
+        with feedback_configured(), self.assertNoLogs("weather", level="WARNING"):
+            self.assertEqual(weather_app._check_feedback_config(), [])
+
+    def test_check_runs_at_import_and_no_personal_address_in_code(self):
+        with open(weather_app.__file__, encoding="utf-8") as fh:
+            src = fh.read()
+        top_level_calls = [n.value.func.id for n in ast.parse(src).body
+                           if isinstance(n, ast.Expr) and isinstance(n.value, ast.Call)
+                           and isinstance(n.value.func, ast.Name)]
+        self.assertIn("_check_feedback_config", top_level_calls)
+        import re
+        addresses = set(re.findall(r"[\w.+-]+@[\w-]+\.[\w.]+", src))
+        self.assertEqual(addresses, {"contact@neckrone8x.co.ke"})   # the site's own, in User-Agent
+
+    def run_app(self, **env):
+        import subprocess
+        import sys
+        full_env = dict(os.environ, OPENWEATHER_API_KEY="test-key", **env)
+        return subprocess.run(
+            [sys.executable, "-c",
+             "import app; print(repr(app.FEEDBACK_TO_EMAIL), repr(app.FEEDBACK_FROM_EMAIL))"],
+            cwd=os.path.dirname(os.path.abspath(weather_app.__file__)), env=full_env,
+            capture_output=True, text=True, timeout=60)
+
+    def test_addresses_are_read_from_the_environment(self):
+        p = self.run_app(FEEDBACK_TO_EMAIL="to@example.org", FEEDBACK_FROM_EMAIL="from@example.org")
+        self.assertEqual(p.stdout.strip(), "'to@example.org' 'from@example.org'")
+        self.assertNotIn("Feedback email is off", p.stderr)
+
+        p = self.run_app(FEEDBACK_TO_EMAIL="", FEEDBACK_FROM_EMAIL="")
+        self.assertEqual(p.stdout.strip(), "'' ''")
+        self.assertEqual(p.stderr.count("Feedback email is off"), 1)
 
 
 class FakeSlowServer:

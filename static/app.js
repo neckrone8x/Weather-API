@@ -43,9 +43,15 @@ function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
     return fetch(url, { ...options, signal: controller.signal });
 }
 
-/* The service worker marks replies it served from its saved copy. */
+/* When was this reply's data fetched, if it is a saved copy? null = it's fresh.
+   - the server marks replies built from its saved copies (X-Stale-Saved-At, unix s),
+     e.g. while OpenWeatherMap rejects our key
+   - the service worker marks replies it served from its own saved copy */
 function savedCopyTime(response) {
-    if (!response || response.headers.get("X-SW-Fallback") !== "1") return null;
+    if (!response) return null;
+    const serverSaved = Number(response.headers.get("X-Stale-Saved-At"));
+    if (Number.isFinite(serverSaved) && serverSaved > 0) return serverSaved * 1000;
+    if (response.headers.get("X-SW-Fallback") !== "1") return null;
     const t = Date.parse(response.headers.get("X-SW-Saved-At") || response.headers.get("Date") || "");
     return Number.isFinite(t) ? t : 0;
 }
@@ -1574,29 +1580,39 @@ function updateSunCountdown() {
 /* =========================================================
    FETCH EXTRA DATA (UV + AQI)
 ========================================================= */
+/* Show the UV tile with `text`, or hide the whole tile when text is null
+   (no UV available: better no tile than an error). */
+function setUvTile(text) {
+    const el = getElement("uv-index");
+    if (!el) return;
+    const tile = typeof el.closest === "function" ? el.closest(".extra-detail") : null;
+    if (text === null) {
+        el.textContent = "--";
+        if (tile) tile.style.display = "none";
+        return;
+    }
+    el.textContent = text;
+    if (tile) tile.style.display = "";
+}
+
 function fetchExtraData(lat, lon) {
     fetchWithTimeout(`/uv?lat=${lat}&lon=${lon}`)
         .then(r => r.ok ? r.json() : null)
         .then(data => {
-            const el = getElement("uv-index");
-            if (!el) return;
-            if (data && data.value !== undefined && data.value !== null) {
-                const val = Math.round(data.value);
+            if (data && Number.isFinite(Number(data.value)) && data.value !== null) {
+                const val = Math.round(Number(data.value));
                 let label = "";
                 if (val <= 2) label = "Low";
                 else if (val <= 5) label = "Moderate";
                 else if (val <= 7) label = "High";
                 else if (val <= 10) label = "Very High";
                 else label = "Extreme";
-                el.textContent = `${val} (${label})`;
+                setUvTile(`${val} (${label})`);
             } else {
-                el.textContent = "--";
+                setUvTile(null);
             }
         })
-        .catch(() => {
-            const el = getElement("uv-index");
-            if (el) el.textContent = "--";
-        });
+        .catch(() => setUvTile(null));
 
     fetchWithTimeout(`/air?lat=${lat}&lon=${lon}`)
         .then(r => r.ok ? r.json() : null)
@@ -2022,6 +2038,10 @@ function setLoadingState() {
    Resolves true when fresh weather was shown, false otherwise. Never rejects.
 ========================================================= */
 let weatherLoadSeq = 0;
+const WEATHER_UNAVAILABLE_MESSAGE =
+    "Weather is temporarily unavailable. Please try again in a few minutes.";
+const SEARCH_UNAVAILABLE_MESSAGE =
+    "City search is temporarily unavailable. Please try again in a few minutes.";
 
 function isShowingPlace(lat, lon) {
     const loc = window._loadedLocation;
@@ -2102,7 +2122,11 @@ function loadWeatherFull(url, { retry, adjust, keepCurrent = false,
 
     return fetchWithTimeout(url)
         .then(async response => {
-            if (!response.ok) throw new Error(`Weather request failed: ${response.status}`);
+            if (!response.ok) {
+                const err = new Error(`Weather request failed: ${response.status}`);
+                err.status = response.status;
+                throw err;
+            }
             const savedAt = savedCopyTime(response);
             const payload = await response.json();
             if (!payload || !payload.weather || !payload.forecast) {
@@ -2128,7 +2152,10 @@ function loadWeatherFull(url, { retry, adjust, keepCurrent = false,
         .catch(error => {
             if (seq !== weatherLoadSeq) return false;
             console.error("Weather error:", error);
-            showSavedWeatherFallback(retry, failMessage);
+            // 503 = the weather service is down on our side (e.g. its key is
+            // being replaced): say so plainly instead of a generic failure.
+            showSavedWeatherFallback(retry, error && error.status === 503
+                ? WEATHER_UNAVAILABLE_MESSAGE : failMessage);
             return false;
         });
 }
@@ -2229,10 +2256,16 @@ function searchLocations(city) {
     setControlsVisibility(false);
 
     fetchWithTimeout(`/locations?city=${encodeURIComponent(city)}`)
-        .then(response => response.json().then(data => ({ status: response.status, data })))
+        .then(response => response.json()
+            .catch(() => ({}))                      // e.g. an HTML error page
+            .then(data => ({ status: response.status, data: data || {} })))
         .then(({ status, data }) => {
             resultsContainer.innerHTML = "";
 
+            if (status === 503 || data.error === "weather_unavailable") {
+                showSearchProblem(city, SEARCH_UNAVAILABLE_MESSAGE);
+                return;
+            }
             if (status === 404 || data.cod === 404 || data.cod === "404") {
                 if (errorMessage) errorMessage.textContent = "City not found. Please try again.";
                 resultsContainer.style.display = "none";
@@ -2241,10 +2274,7 @@ function searchLocations(city) {
                 return;
             }
             if (status !== 200 && data.cod !== 200 && data.cod !== "200") {
-                if (errorMessage) errorMessage.textContent = "Unable to search locations.";
-                resultsContainer.style.display = "none";
-                if (searchHint) searchHint.style.display = "none";
-                setControlsVisibility(true);
+                showSearchProblem(city, "Unable to search locations right now.");
                 return;
             }
             if (!Array.isArray(data.locations) || data.locations.length === 0) {
@@ -2284,11 +2314,36 @@ function searchLocations(city) {
         })
         .catch(error => {
             console.error("Location search error:", error);
-            resultsContainer.innerHTML = "";
-            resultsContainer.style.display = "none";
-            if (errorMessage) errorMessage.textContent = "Unable to search locations.";
-            setControlsVisibility(true);
+            showSearchProblem(city, "Unable to search locations right now.");
         });
+}
+
+/* Search failed (503, timeout, error): a clear message + Retry where the
+   results would be. The weather on screen is left as it is. */
+function showSearchProblem(city, message) {
+    const resultsContainer = getElement("location-results");
+    const errorMessage = getElement("error-message");
+    const searchHint = getElement("search-hint");
+    if (searchHint) searchHint.style.display = "none";
+    if (errorMessage) errorMessage.textContent = "";
+    setControlsVisibility(true);
+    if (!resultsContainer) return;
+
+    resultsContainer.innerHTML = "";
+    const box = document.createElement("div");
+    box.className = "location-heading search-problem";
+    box.setAttribute("role", "alert");
+    const text = document.createElement("div");
+    text.textContent = message;
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "data-status-retry";
+    retry.textContent = "Retry";
+    retry.addEventListener("click", () => searchLocations(city));
+    box.appendChild(text);
+    box.appendChild(retry);
+    resultsContainer.appendChild(box);
+    resultsContainer.style.display = "block";
 }
 
 

@@ -57,7 +57,8 @@ UPSTREAM_TIMEOUT = (CONNECT_TIMEOUT, READ_TIMEOUT)
 UPSTREAM_TOTAL = 10         # hard cap for one outside call: DNS, connect, slow replies, retry
 REQUEST_BUDGET = 15         # the most one of our endpoints may spend on outside calls
 OPEN_METEO_WAIT = 6         # UV + 16-day outlook are extras: never wait long
-OPEN_METEO_COOLDOWN = 300   # after a failure, skip Open-Meteo for 5 minutes
+OPEN_METEO_COOLDOWN = 60    # after a 429 or failure, skip Open-Meteo for 60 s
+KEY_LOG_INTERVAL = 60       # log "OWM rejected the API key" at most once per minute
 RETRY_PAUSE = 0.3
 RETRY_MIN_LEFT = 2          # only retry if at least this much time is left
 MAX_UPSTREAM_BODY = 5 * 1024 * 1024
@@ -73,6 +74,7 @@ TTL_REVERSE = 86400
 TTL_AIR = 1800
 TTL_IP = 21600
 TTL_ALERTS = 900
+TTL_STALE = 7 * 86400     # last good copy, served only when the live call can't be made
 
 
 # =================================
@@ -109,7 +111,7 @@ class TTLCache:
             self._data.clear()
 
 
-cache = TTLCache()
+cache = TTLCache(max_items=4000)   # room for fresh entries + their "stale:" copies
 
 
 # =================================
@@ -139,6 +141,14 @@ upstream_pool = ThreadPoolExecutor(max_workers=48, thread_name_prefix="upstream"
 # Per-request state that follows the work into the pools.
 _deadline_var = contextvars.ContextVar("request_deadline", default=None)
 _trace_var = contextvars.ContextVar("upstream_trace", default=None)
+_stale_var = contextvars.ContextVar("stale_saved_at", default=None)
+
+
+def _mark_stale(saved_at):
+    """This request is answering with a saved copy fetched at `saved_at`."""
+    marks = _stale_var.get()
+    if marks is not None:
+        marks.append(saved_at)
 
 
 def submit(fn, *args):
@@ -177,8 +187,18 @@ class UpstreamError(Exception):
         self.kind = kind
 
 
+class WeatherUnavailable(ApiError):
+    """OpenWeatherMap refused our key (401/403) and nothing is saved."""
+
+    def __init__(self):
+        super().__init__(503, "Weather is temporarily unavailable, please try again later")
+
+
 @app.errorhandler(ApiError)
 def handle_api_error(err):
+    if isinstance(err, WeatherUnavailable):
+        return jsonify({"error": "weather_unavailable", "cod": 503,
+                        "message": err.message}), 503
     return jsonify({"cod": err.status, "message": err.message}), err.status
 
 
@@ -342,7 +362,25 @@ def upstream(provider, url, *, method="GET", params=None, headers=None, json_bod
         _record(provider, time.monotonic() - start, outcome)
 
 
-def owm_get(path, params, cache_key=None, ttl=TTL_WEATHER, units=True):
+_key_log_lock = threading.Lock()
+_key_log_last = None
+
+
+def _log_key_rejected(status, path):
+    """One error line per minute, not one per request, while the key is bad."""
+    global _key_log_last
+    now = time.monotonic()
+    with _key_log_lock:
+        if _key_log_last is not None and now - _key_log_last < KEY_LOG_INTERVAL:
+            return
+        _key_log_last = now
+    log.error("OWM rejected the API key (%s) on %s — check OPENWEATHER_API_KEY", status, path)
+
+
+def owm_get(path, params, cache_key=None, ttl=TTL_WEATHER, units=True, transform=None):
+    """GET from OpenWeatherMap, cached under `cache_key`. `transform(data)`
+    runs once on fresh data before it is cached. Every good reply is also kept
+    as "stale:<key>", which is served if OWM later rejects our key."""
     if cache_key:
         cached = cache.get(cache_key)
         if cached is not None:
@@ -360,9 +398,14 @@ def owm_get(path, params, cache_key=None, ttl=TTL_WEATHER, units=True):
             raise ApiError(504, "Weather service timed out")
         raise ApiError(503, "Weather service unavailable")
 
-    if r.status == 401:
-        log.error("OWM rejected the API key (401) on %s — check OPENWEATHER_API_KEY", path)
-        raise ApiError(502, "Weather service configuration error")
+    if r.status in (401, 403):
+        _log_key_rejected(r.status, path)
+        saved = cache.get(f"stale:{cache_key}") if cache_key else None
+        if saved is not None:
+            saved_at, data = saved
+            _mark_stale(saved_at)
+            return data
+        raise WeatherUnavailable()
     if r.status == 404:
         raise ApiError(404, "Location not found")
     if r.status == 429:
@@ -377,8 +420,11 @@ def owm_get(path, params, cache_key=None, ttl=TTL_WEATHER, units=True):
     except UpstreamError:
         raise ApiError(502, "Weather service returned an invalid response")
 
+    if transform is not None:
+        data = transform(data)
     if cache_key:
         cache.set(cache_key, data, ttl)
+        cache.set(f"stale:{cache_key}", (time.time(), data), TTL_STALE)
     return data
 
 
@@ -395,7 +441,8 @@ _watchdog_fired = False
 def _start_request_clock():
     now = time.monotonic()
     g._t0 = now
-    g._ctx_tokens = (_deadline_var.set(now + REQUEST_BUDGET), _trace_var.set([]))
+    g._ctx_tokens = (_deadline_var.set(now + REQUEST_BUDGET), _trace_var.set([]),
+                     _stale_var.set([]))
     with _inflight_lock:
         _inflight[threading.get_ident()] = (now, request.path)
     _ensure_watchdog()
@@ -414,7 +461,7 @@ def _finish_request(exc):
             log.warning("SLOW request %s took %.1fs (upstream: %s)", request.path, seconds, calls)
     tokens = g.pop("_ctx_tokens", None)
     if tokens:
-        for var, token in zip((_deadline_var, _trace_var), tokens):
+        for var, token in zip((_deadline_var, _trace_var, _stale_var), tokens):
             try:
                 var.reset(token)
             except (ValueError, RuntimeError):
@@ -575,27 +622,23 @@ def get_current(lat, lon):
                    cache_key=f"cur:{coord_key(lat, lon)}")
 
 
-def get_forecast(lat, lon):
-    key = f"fc:{coord_key(lat, lon)}"
-    cached = cache.get(key)
-    if cached is not None:
-        return cached
-
-    data = owm_get("/data/2.5/forecast", {"lat": lat, "lon": lon})
+def _add_local_times(data):
+    """OWM's dt_txt is UTC. Add a local-time version so the frontend groups
+    days by the location's calendar day, not by UTC midnight."""
     tz = int(data.get("city", {}).get("timezone", 0) or 0)
-
-    # OWM's dt_txt is UTC. Add a local-time version so the frontend groups
-    # days by the location's calendar day, not by UTC midnight.
     for item in data.get("list", []):
         dt = item.get("dt")
         if dt is not None:
             item["dt_txt_local"] = datetime.fromtimestamp(
                 int(dt) + tz, tz=timezone.utc
             ).strftime("%Y-%m-%d %H:%M:%S")
-
     data["timezone"] = tz
-    cache.set(key, data, TTL_WEATHER)
     return data
+
+
+def get_forecast(lat, lon):
+    return owm_get("/data/2.5/forecast", {"lat": lat, "lon": lon},
+                   cache_key=f"fc:{coord_key(lat, lon)}", transform=_add_local_times)
 
 
 # WMO weather code (Open-Meteo) -> (OWM condition id, OWM icon, description)
@@ -627,14 +670,25 @@ def _at(arr, i):
     return arr[i] if arr and i < len(arr) else None
 
 
+def _last_open_meteo(key):
+    """The last good Open-Meteo result for this place, however old, or None."""
+    saved = cache.get(f"stale:{key}")
+    if saved is None:
+        return None
+    saved_at, result = saved
+    return dict(result, stale=True, saved_at=int(saved_at))
+
+
 def get_open_meteo(lat, lon):
-    """UV index (now + today's max) and a 16-day daily outlook. Returns None on failure."""
+    """UV index (now + today's max) and a 16-day daily outlook, cached 30 min
+    per ~1 km cell. After a 429 or failure Open-Meteo is left alone for 60 s;
+    meanwhile the last good result is served (marked stale), else None."""
     key = f"om:{coord_key(lat, lon)}"
     cached = cache.get(key)
     if cached is not None:
         return cached
-    if cache.get("om:down"):   # it failed a moment ago: don't make people wait again
-        return None
+    if cache.get("om:down"):   # it failed a moment ago: don't call it again yet
+        return _last_open_meteo(key)
 
     try:
         r = upstream("open-meteo", OPEN_METEO_URL, params={
@@ -655,7 +709,7 @@ def get_open_meteo(lat, lon):
     except UpstreamError as e:
         log.warning("Open-Meteo error: %s", e.kind)
         cache.set("om:down", True, OPEN_METEO_COOLDOWN)
-        return None
+        return _last_open_meteo(key)
 
     d = data.get("daily", {}) or {}
     days = []
@@ -689,6 +743,7 @@ def get_open_meteo(lat, lon):
         "daily": days,
     }
     cache.set(key, result, TTL_OPEN_METEO)
+    cache.set(f"stale:{key}", (time.time(), result), TTL_STALE)
     return result
 
 
@@ -720,6 +775,12 @@ def attach_location(weather, forecast, searched):
 
 @app.after_request
 def add_cache_headers(resp):
+    # A reply built from saved copies says so (unix time of the oldest one),
+    # so the page can show "Showing saved data from <time>". Never cache it.
+    marks = _stale_var.get()
+    if marks:
+        resp.headers["X-Stale-Saved-At"] = str(int(min(marks)))
+        resp.headers["Cache-Control"] = "no-store"
     # Let browsers/SW reuse API responses briefly; never cache errors.
     if request.path in API_PATHS and resp.status_code == 200 and "Cache-Control" not in resp.headers:
         resp.headers["Cache-Control"] = "public, max-age=120"
@@ -838,9 +899,9 @@ def weather_full():
 
 
 # =================================
-# UV INDEX
-# OWM's 2.5/uvi endpoint is retired and One Call 3.0 needs a separate
-# subscription, so Open-Meteo is the primary source now.
+# UV INDEX — Open-Meteo only.
+# (OWM's 2.5/uvi is retired and our key has no One Call 3.0 subscription.)
+# value is null when there is no UV at all: the page then hides the UV tile.
 # =================================
 @app.route("/uv")
 def uv_index():
@@ -848,18 +909,11 @@ def uv_index():
 
     om = get_open_meteo(lat, lon)
     if om and om["uv"] is not None:
-        return jsonify({"value": om["uv"], "max_today": om["uv_max_today"], "source": "open-meteo"})
-
-    # Fallback: One Call 3.0 (works only if your key has it enabled)
-    try:
-        data = owm_get("/data/3.0/onecall",
-                       {"lat": lat, "lon": lon, "exclude": "minutely,hourly,daily,alerts"},
-                       cache_key=f"uv3:{coord_key(lat, lon)}", ttl=TTL_OPEN_METEO)
-        uvi = (data.get("current") or {}).get("uvi")
-        if uvi is not None:
-            return jsonify({"value": uvi, "source": "openweathermap"})
-    except ApiError:
-        pass
+        out = {"value": om["uv"], "max_today": om["uv_max_today"], "source": "open-meteo"}
+        if om.get("stale"):
+            out["stale"] = True
+            out["saved_at"] = om["saved_at"]
+        return jsonify(out)
 
     return jsonify({"value": None, "message": "UV index unavailable"})
 
@@ -976,13 +1030,32 @@ def my_location():
 # FEEDBACK -> EMAIL (SendGrid v3 API, called through upstream())
 # =================================
 SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
-FEEDBACK_TO_EMAIL = os.getenv("FEEDBACK_TO_EMAIL", "bradleyrex32@gmail.com")
+# Both addresses come only from the environment (the From address must be a
+# sender verified in SendGrid). No address is kept in the code.
+FEEDBACK_TO_EMAIL = (os.getenv("FEEDBACK_TO_EMAIL") or "").strip()
+FEEDBACK_FROM_EMAIL = (os.getenv("FEEDBACK_FROM_EMAIL") or "").strip()
 FEEDBACK_LIMIT = 5          # messages per IP...
 FEEDBACK_WINDOW = 600       # ...per 10 minutes
 
 
+def _check_feedback_config():
+    """Warn (once, at startup) if the feedback addresses are missing."""
+    missing = [name for name, value in (("FEEDBACK_TO_EMAIL", FEEDBACK_TO_EMAIL),
+                                        ("FEEDBACK_FROM_EMAIL", FEEDBACK_FROM_EMAIL))
+               if not value]
+    if missing:
+        log.warning("Feedback email is off: %s not set", " and ".join(missing))
+    return missing
+
+
+_check_feedback_config()
+
+
 @app.route("/feedback", methods=["POST"])
 def feedback():
+    if not (FEEDBACK_TO_EMAIL and FEEDBACK_FROM_EMAIL):
+        return jsonify({"ok": False, "message": "Sorry, feedback isn't available right now. "
+                                                "Please try again later."}), 503
     if not SENDGRID_API_KEY:
         return jsonify({"ok": False, "message": "Feedback not configured"}), 500
 
@@ -1012,7 +1085,7 @@ def feedback():
     )
     mail = {
         "personalizations": [{"to": [{"email": FEEDBACK_TO_EMAIL}]}],
-        "from": {"email": FEEDBACK_TO_EMAIL},
+        "from": {"email": FEEDBACK_FROM_EMAIL},
         "subject": f"[Neckrone8x Weather] {category.upper()} feedback",
         "content": [{"type": "text/plain", "value": body}],
     }
