@@ -14,6 +14,7 @@ import contextvars
 import ipaddress
 import json
 import logging
+import math
 import os
 import signal
 import sys
@@ -1190,29 +1191,77 @@ def _nws_alerts(lat, lon):
         return None
 
 
+# Earthquakes: how far away a quake still matters depends on its size.
+QUAKE_DAYS = 7
+QUAKE_MIN_MAGNITUDE = 4.0
+QUAKE_RADIUS_BY_MAGNITUDE = ((6.0, 1500), (5.0, 800), (4.0, 300))   # (from M, km)
+QUAKE_SEARCH_RADIUS_KM = max(km for _, km in QUAKE_RADIUS_BY_MAGNITUDE)
+QUAKES_RETURNED = 5
+EARTH_RADIUS_KM = 6371.0088
+
+
+def distance_km(lat1, lon1, lat2, lon2):
+    """Great-circle (haversine) distance in km."""
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = p2 - p1, math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * EARTH_RADIUS_KM * math.asin(min(1.0, math.sqrt(a)))
+
+
+def quake_radius_km(magnitude):
+    """M4–4.9: 300 km, M5–5.9: 800 km, M6+: 1500 km, smaller: 0 (not shown)."""
+    for min_mag, km in QUAKE_RADIUS_BY_MAGNITUDE:
+        if magnitude >= min_mag:
+            return km
+    return 0
+
+
+def quake_score(magnitude, km):
+    """Higher = more worth showing: stronger and closer. Shaking falls off
+    roughly with 1.5·log10(distance), so e.g. an M4.8 at 120 km (1.68) beats
+    an M4.2 at 50 km (1.65) and an M5.5 at 700 km (1.23)."""
+    return magnitude - 1.5 * math.log10(max(km, 10.0))
+
+
 def _usgs_quakes(lat, lon):
+    """Quakes of the last 7 days that are close enough for their size, best
+    first (see quake_score). Each has its USGS id and distance_km."""
     try:
         r = upstream("usgs", "https://earthquake.usgs.gov/fdsnws/event/1/query", params={
             "format": "geojson",
             "latitude": lat, "longitude": lon,
-            "maxradiuskm": 500, "minmagnitude": 4.0,
-            "starttime": (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d"),
+            "maxradiuskm": QUAKE_SEARCH_RADIUS_KM, "minmagnitude": QUAKE_MIN_MAGNITUDE,
+            "starttime": (datetime.now(timezone.utc) - timedelta(days=QUAKE_DAYS))
+                         .strftime("%Y-%m-%dT%H:%M:%S"),
             "orderby": "time",
+            "limit": 400,
         })
         if r.status != 200:
             return None
-        out = []
-        for feat in (r.json() or {}).get("features", [])[:3]:
-            p = feat.get("properties", {})
+        scored = []
+        for feat in (r.json() or {}).get("features", []) or []:
+            p = feat.get("properties", {}) or {}
             gc = (feat.get("geometry") or {}).get("coordinates") or [None, None, None]
-            out.append({
-                "magnitude": p.get("mag"),
-                "place": p.get("place", "Unknown location"),
+            try:
+                mag = float(p.get("mag"))
+                q_lon, q_lat = float(gc[0]), float(gc[1])
+            except (TypeError, ValueError, IndexError):
+                continue
+            km = distance_km(lat, lon, q_lat, q_lon)
+            if km > quake_radius_km(mag):
+                continue
+            scored.append((quake_score(mag, km), p.get("time") or 0, {
+                "id": feat.get("id") or p.get("code") or "",
+                "magnitude": mag,
+                "place": p.get("place") or "Unknown location",
                 "time": p.get("time"),
                 "url": p.get("url", ""),
-                "lon": gc[0], "lat": gc[1], "depth": gc[2] if len(gc) > 2 else None,
-            })
-        return out
+                "lon": q_lon, "lat": q_lat,
+                "depth": gc[2] if len(gc) > 2 else None,
+                "distance_km": int(round(km)),
+            }))
+        scored.sort(key=lambda s: (s[0], s[1]), reverse=True)   # best, then newest
+        return [q for _, _, q in scored[:QUAKES_RETURNED]]
     except UpstreamError as e:
         log.warning("USGS error: %s", e.kind)
         return None

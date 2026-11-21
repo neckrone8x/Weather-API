@@ -5,11 +5,13 @@ a tiny local fake server), so no key or internet is needed:
 """
 import ast
 import json
+import math
 import os
 import signal
 import threading
 import time
 import unittest
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
@@ -652,6 +654,115 @@ class FeedbackConfigTests(unittest.TestCase):
         p = self.run_app(FEEDBACK_TO_EMAIL="", FEEDBACK_FROM_EMAIL="")
         self.assertEqual(p.stdout.strip(), "'' ''")
         self.assertEqual(p.stderr.count("Feedback email is off"), 1)
+
+
+KISUMU = (-0.1, 34.75)
+KM_PER_DEG_LAT = math.pi * weather_app.EARTH_RADIUS_KM / 180    # ~111.2 km
+
+
+def quake(qid, mag, km_north, hours_ago=1, depth=10.0, place=None, origin=KISUMU):
+    """A USGS GeoJSON feature `km_north` km due north of `origin`."""
+    lat, lon = origin[0] + km_north / KM_PER_DEG_LAT, origin[1]
+    return {"id": qid, "properties": {
+        "mag": mag, "place": place or f"{km_north} km N of somewhere",
+        "time": int((time.time() - hours_ago * 3600) * 1000), "url": f"https://usgs/{qid}"},
+        "geometry": {"coordinates": [lon, lat, depth]}}
+
+
+class EarthquakeTests(unittest.TestCase):
+    """W-5 B: distance, radius by magnitude, best quake first. Free: no auth anywhere."""
+
+    def setUp(self):
+        weather_app.cache.clear()
+        self.client = weather_app.app.test_client()
+        self.features = []
+        self.usgs_params = None
+
+        def handler(url, params=None, **kw):
+            if "usgs" in url:
+                self.usgs_params = params
+                return FakeResp(200, {"features": self.features})
+            return router(url, params, **kw)
+        patcher = mock.patch.object(weather_app.http, "get", side_effect=handler)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def quakes(self, origin=KISUMU):
+        r = self.client.get(f"/local-alerts?lat={origin[0]}&lon={origin[1]}")
+        self.assertEqual(r.status_code, 200)
+        return r.get_json()["quakes"]
+
+    def test_distance_km(self):
+        d = weather_app.distance_km
+        self.assertAlmostEqual(d(0, 0, 1, 0), 111.19, delta=0.05)          # 1° of latitude
+        self.assertAlmostEqual(d(0, 34, 0, 35), 111.19, delta=0.05)        # 1° of longitude at the equator
+        self.assertAlmostEqual(d(-1.2864, 36.8172, -0.0917, 34.7680), 262, delta=3)   # Nairobi–Kisumu
+        self.assertEqual(d(5, 5, 5, 5), 0)
+
+    def test_each_quake_has_distance_and_usgs_id(self):
+        self.features = [quake("us7000abcd", 4.8, 120, place="46 km SE of Ikungi, Tanzania")]
+        q = self.quakes()[0]
+        self.assertEqual(q["id"], "us7000abcd")
+        self.assertEqual(q["distance_km"], 120)
+        self.assertEqual(q["place"], "46 km SE of Ikungi, Tanzania")
+        self.assertEqual(q["depth"], 10.0)
+
+    def test_radius_depends_on_magnitude(self):
+        self.features = [
+            quake("m4-in", 4.5, 290), quake("m4-out", 4.9, 310),
+            quake("m5-in", 5.2, 790), quake("m5-out", 5.9, 810),
+            quake("m6-in", 6.1, 1490), quake("m6-out", 7.0, 1510),
+            quake("tiny", 3.9, 5),
+        ]
+        ids = {q["id"] for q in self.quakes()}
+        self.assertEqual(ids, {"m4-in", "m5-in", "m6-in"})
+        self.assertEqual(weather_app.quake_radius_km(4.0), 300)
+        self.assertEqual(weather_app.quake_radius_km(5.0), 800)
+        self.assertEqual(weather_app.quake_radius_km(6.0), 1500)
+        self.assertEqual(weather_app.quake_radius_km(3.9), 0)
+
+    def test_usgs_is_asked_for_7_days_within_the_largest_radius(self):
+        self.quakes()
+        p = self.usgs_params
+        self.assertEqual(p["maxradiuskm"], 1500)
+        self.assertEqual(p["minmagnitude"], 4.0)
+        start = datetime.strptime(p["starttime"], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+        self.assertAlmostEqual((datetime.now(timezone.utc) - start).total_seconds(), 7 * 86400, delta=60)
+
+    def test_best_quake_is_strong_and_close_not_just_newest(self):
+        self.features = [
+            quake("newest-small-close", 4.2, 50, hours_ago=1),
+            quake("far-strong", 5.5, 700, hours_ago=5),
+            quake("best", 4.8, 120, hours_ago=48),
+        ]
+        self.assertEqual([q["id"] for q in self.quakes()],
+                         ["best", "newest-small-close", "far-strong"])
+
+    def test_same_score_newest_first_and_at_most_five(self):
+        self.features = [quake(f"q{i}", 4.5, 100, hours_ago=i + 1) for i in range(8)]
+        ids = [q["id"] for q in self.quakes()]
+        self.assertEqual(ids, ["q0", "q1", "q2", "q3", "q4"])
+
+    def test_bad_features_are_skipped(self):
+        bad = quake("nomag", 4.5, 10)
+        bad["properties"]["mag"] = None
+        nogeo = quake("nogeo", 4.5, 10)
+        nogeo["geometry"] = None
+        self.features = [bad, nogeo, quake("ok", 4.5, 10)]
+        self.assertEqual([q["id"] for q in self.quakes()], ["ok"])
+
+    def test_distance_is_from_the_place_asked_about(self):
+        self.features = [quake("q", 4.6, 250)]               # 250 km N of Kisumu
+        self.assertEqual(self.quakes()[0]["distance_km"], 250)
+        weather_app.cache.clear()
+        far = (KISUMU[0] - 100 / KM_PER_DEG_LAT, KISUMU[1])  # 100 km further south
+        self.assertEqual(self.quakes(far), [])                # now 350 km: too far for an M4.6
+
+    def test_alerts_need_no_login_or_plan(self):
+        self.features = [quake("q", 4.6, 50)]
+        r = self.client.get("/local-alerts?lat=-0.1&lon=34.75")   # no cookies, no headers
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(r.get_json()["quakes"]), 1)
 
 
 class FakeSlowServer:

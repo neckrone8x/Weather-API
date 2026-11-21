@@ -668,81 +668,148 @@ function generateWeatherReport(data) {
 /* =========================================================
    LOCATION SAFETY ALERTS
 ========================================================= */
-async function checkLocationAlerts(lat, lon) {
+/* Free for every user: no login, plan or premium check anywhere here.
+
+   Checked for every place shown (live, saved, failed loads, searched,
+   located, saved cities) as soon as its coordinates are known.
+   - the banner is only replaced when an answer arrives; a failed check
+     keeps whatever is shown
+   - a counter stops an older answer from overwriting a newer one
+   - the X remembers a dismissed quake by its USGS id; a new quake still shows */
+const DISMISSED_QUAKES_KEY = "neckrone8x_dismissed_quakes";
+const ALERT_RECHECK_MS = 60 * 1000;     // same place again within a minute: skip
+let alertCheckSeq = 0;
+let lastAlertCheck = { key: "", time: 0 };
+let shownSafetyAlert = null;            // { kind: "alert" | "quake", id }
+
+function loadDismissedQuakes() {
+    try {
+        const list = JSON.parse(localStorage.getItem(DISMISSED_QUAKES_KEY) || "[]");
+        return Array.isArray(list) ? list : [];
+    } catch { return []; }
+}
+
+function dismissQuake(id) {
+    if (!id) return;
+    try {
+        const list = loadDismissedQuakes().filter(x => x !== id);
+        list.push(id);
+        localStorage.setItem(DISMISSED_QUAKES_KEY, JSON.stringify(list.slice(-50)));
+    } catch (e) { /* storage blocked: it just won't be remembered */ }
+}
+
+function formatAgo(ms) {
+    const mins = Math.round((Date.now() - Number(ms)) / 60000);
+    if (!Number.isFinite(mins) || mins < 0) return "";
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins} min ago`;
+    const hrs = Math.round(mins / 60);
+    if (hrs < 48) return `${hrs} h ago`;
+    const days = Math.round(hrs / 24);
+    return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+/* "M4.8 earthquake" + "46 km SE of Ikungi, Tanzania · 120 km from you · 10 km deep · 2 days ago" */
+function quakeBannerText(q) {
+    const mag = Number(q.magnitude);
+    const parts = [q.place || "Nearby"];
+    if (Number.isFinite(Number(q.distance_km)) && q.distance_km !== null) {
+        parts.push(`${Math.round(Number(q.distance_km))} km from you`);
+    }
+    if (q.depth !== null && q.depth !== undefined && Number.isFinite(Number(q.depth))) {
+        parts.push(`${Math.round(Number(q.depth))} km deep`);
+    }
+    const ago = formatAgo(q.time);
+    if (ago) parts.push(ago);
+    return {
+        title: `M${Number.isFinite(mag) ? mag.toFixed(1) : "?"} earthquake`,
+        text: parts.join(" · ")
+    };
+}
+
+function renderSafetyBanner(data) {
     const banner = getElement("safety-alert");
     const titleEl = getElement("safety-alert-title");
     const textEl = getElement("safety-alert-text");
     const iconEl = getElement("safety-alert-icon");
     const closeBtn = getElement("safety-alert-close");
-
     if (!banner || !titleEl || !textEl) return;
 
-    banner.style.display = "none";
+    const alerts = Array.isArray(data && data.alerts) ? data.alerts : [];
+    const quakes = Array.isArray(data && data.quakes) ? data.quakes : [];
     banner.className = "safety-alert";
 
-    // Shared with the Mkuu helper (mkuu-weather-context.js)
-    window._lastLocalAlerts = null;
-    window.dispatchEvent(new Event("mkuu:context-changed"));
-
-    try {
-        const res = await fetchWithTimeout(`/local-alerts?lat=${lat}&lon=${lon}`);
-        if (!res.ok) return;
-        const data = await res.json();
-
-        window._lastLocalAlerts = data;
-        window.dispatchEvent(new Event("mkuu:context-changed"));
-
-        const alerts = data.alerts || [];
-        const quakes = data.quakes || [];
-
-        if (alerts.length > 0) {
-            const top = alerts[0];
-            const sev = (top.severity || "").toLowerCase();
-
-            iconEl.textContent = "⚠️";
-            titleEl.textContent = top.event || "Weather Alert";
-            textEl.textContent = top.headline || top.description || "";
-
-            if (sev === "extreme" || sev === "severe") {
-                banner.classList.add("severity-moderate");
-            } else {
-                banner.classList.add("severity-minor");
-            }
-
-            banner.style.display = "flex";
-
-            if (typeof mpTrack === "function") {
-                mpTrack("safety_alert_shown", {
-                    event: top.event,
-                    severity: top.severity
-                });
-            }
-
-        } else if (quakes.length > 0) {
-            const q = quakes[0];
-            iconEl.textContent = "🌋";
-            titleEl.textContent = `M${q.magnitude} Earthquake Nearby`;
-            textEl.textContent = `${q.place} — ${Math.round(q.depth)}km deep`;
-
+    if (alerts.length > 0) {
+        const top = alerts[0];
+        const sev = (top.severity || "").toLowerCase();
+        if (iconEl) iconEl.textContent = "⚠️";
+        titleEl.textContent = top.event || "Weather Alert";
+        textEl.textContent = top.headline || top.description || "";
+        banner.classList.add(sev === "extreme" || sev === "severe" ? "severity-moderate" : "severity-minor");
+        banner.style.display = "flex";
+        shownSafetyAlert = { kind: "alert", id: top.event || "" };
+        if (typeof mpTrack === "function") {
+            mpTrack("safety_alert_shown", { event: top.event, severity: top.severity });
+        }
+    } else {
+        // The server sends quakes best-first; skip any the user dismissed.
+        const dismissed = loadDismissedQuakes();
+        const q = quakes.find(item => !(item.id && dismissed.includes(item.id)));
+        if (q) {
+            const { title, text } = quakeBannerText(q);
+            if (iconEl) iconEl.textContent = "🌋";
+            titleEl.textContent = title;
+            textEl.textContent = text;
             banner.classList.add("severity-moderate");
             banner.style.display = "flex";
-
+            shownSafetyAlert = { kind: "quake", id: q.id || "" };
             if (typeof mpTrack === "function") {
                 mpTrack("earthquake_alert_shown", {
-                    magnitude: q.magnitude,
-                    place: q.place
+                    magnitude: q.magnitude, place: q.place, distance_km: q.distance_km
                 });
             }
+        } else {
+            banner.style.display = "none";
+            shownSafetyAlert = null;
         }
-
-    } catch (err) {
-        console.warn("Alert check failed:", err);
     }
 
     if (closeBtn) {
         closeBtn.onclick = () => {
             banner.style.display = "none";
+            if (shownSafetyAlert && shownSafetyAlert.kind === "quake") {
+                dismissQuake(shownSafetyAlert.id);
+            }
         };
+    }
+}
+
+async function checkLocationAlerts(lat, lon) {
+    lat = Number(lat);
+    lon = Number(lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+    const key = `${lat.toFixed(2)},${lon.toFixed(2)}`;
+    const now = Date.now();
+    if (lastAlertCheck.key === key && now - lastAlertCheck.time < ALERT_RECHECK_MS) return;
+    lastAlertCheck = { key, time: now };
+    const seq = ++alertCheckSeq;
+
+    try {
+        const res = await fetchWithTimeout(`/local-alerts?lat=${lat}&lon=${lon}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (seq !== alertCheckSeq) return;          // a newer check took over
+
+        // Shared with the Mkuu helper (mkuu-weather-context.js). Only ever
+        // replaced by a newer answer, never cleared.
+        window._lastLocalAlerts = data;
+        window.dispatchEvent(new Event("mkuu:context-changed"));
+        renderSafetyBanner(data);
+    } catch (err) {
+        // Keep whatever is shown; let the next display of this place try again.
+        if (seq === alertCheckSeq) lastAlertCheck = { key: "", time: 0 };
+        console.warn("Alert check failed:", err);
     }
 }
 
@@ -1436,9 +1503,9 @@ function displayWeather(data, opts = {}) {
 
     displaySunTimes(sys.sunrise, sys.sunset, timezone);
 
-    if (live && data.coord && Number.isFinite(data.coord.lat) && Number.isFinite(data.coord.lon)) {
-        fetchExtraData(data.coord.lat, data.coord.lon);
-        checkLocationAlerts(data.coord.lat, data.coord.lon);
+    if (data.coord && Number.isFinite(data.coord.lat) && Number.isFinite(data.coord.lon)) {
+        if (live) fetchExtraData(data.coord.lat, data.coord.lon);   // UV + air: live only
+        checkLocationAlerts(data.coord.lat, data.coord.lon);        // alerts: every place shown
     }
 
     renderMoonCard();
@@ -2109,12 +2176,16 @@ function showSavedWeatherFallback(retry, failMessage) {
 /* url: the /weather-full URL.  retry: re-runs this same load.
    adjust(weather, forecast): optional, may return a promise.
    keepCurrent: leave the weather on screen while loading. */
-function loadWeatherFull(url, { retry, adjust, keepCurrent = false,
+function loadWeatherFull(url, { retry, adjust, keepCurrent = false, coords = null,
                                 loadingMessage = "Loading weather...",
                                 failMessage = "Unable to load weather." } = {}) {
     const seq = ++weatherLoadSeq;
     const errorMessage = getElement("error-message");
     if (errorMessage) errorMessage.textContent = "";
+
+    // Coordinates already known (searched, located, saved place): check for
+    // alerts now, so a quake shows even if the weather itself fails.
+    if (coords) checkLocationAlerts(coords.lat, coords.lon);
 
     if (!(keepCurrent && window._currentWeatherData)) {
         setLoadingUi(loadingMessage);
@@ -2220,6 +2291,7 @@ function getWeatherByCoordinates(latitude, longitude, searchedName = "", searche
 
     return loadWeatherFull(`/weather-full?lat=${latitude}&lon=${longitude}`, {
         keepCurrent,
+        coords: { lat: latitude, lon: longitude },
         retry: () => getWeatherByCoordinates(latitude, longitude, searchedName,
                                              searchedCountry, searchedState, { keepCurrent: true }),
         adjust: (w, f) => {
@@ -2350,6 +2422,97 @@ function showSearchProblem(city, message) {
 /* =========================================================
    USE MY LOCATION
 ========================================================= */
+const GEO_MAX_WAIT_MS = 30000;            // keep watching for a fix up to 30 s
+const GEO_GOOD_ENOUGH_M = 100;            // stop as soon as a fix is this accurate
+const GEO_MAX_AGE_MS = 10 * 60 * 1000;    // a fix the phone already has, up to 10 min old
+const GEO_CACHED_AFTER_MS = 2000;         // a fix older than this came from the phone's cache
+const LOCATION_FAILED_MESSAGE = "Couldn't find your location. Try searching for your city.";
+
+/* One high-accuracy watchPosition, up to GEO_MAX_WAIT_MS.
+   - a fix the phone already had (up to 10 min old) is accepted straight away
+   - otherwise stop as soon as a fix is within ~100 m
+   - when time runs out, use the best (most accurate) fix seen, however rough
+   onProgress(best) is called while it keeps looking for a better fix.
+   Resolves { position, error }; position is null only if there was no fix at all. */
+function locateWithWatch(onProgress) {
+    return new Promise(resolve => {
+        const geo = navigator.geolocation;
+        let best = null;
+        let lastError = null;
+        let watchId = null;
+        let done = false;
+
+        const finish = () => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            if (watchId !== null) {
+                try { geo.clearWatch(watchId); } catch (e) { /* ignore */ }
+            }
+            resolve({ position: best, error: lastError });
+        };
+        const timer = setTimeout(finish, GEO_MAX_WAIT_MS);
+
+        try {
+            watchId = geo.watchPosition(pos => {
+                const accuracy = Number(pos.coords.accuracy);
+                if (!best || accuracy < Number(best.coords.accuracy)) best = pos;
+                const age = Date.now() - Number(pos.timestamp || Date.now());
+                if (age > GEO_CACHED_AFTER_MS && age <= GEO_MAX_AGE_MS) return finish();
+                if (accuracy <= GEO_GOOD_ENOUGH_M) return finish();
+                if (onProgress) onProgress(best);
+            }, err => {
+                lastError = err;
+                // Denied won't change by waiting; other errors may (GPS warming up).
+                if (err && err.code === err.PERMISSION_DENIED) finish();
+            }, {
+                enableHighAccuracy: true,
+                maximumAge: GEO_MAX_AGE_MS,
+                timeout: GEO_MAX_WAIT_MS
+            });
+        } catch (e) {
+            lastError = e;
+            finish();
+        }
+    });
+}
+
+/* "Approximate location · Search for your city" under the search box. */
+function showApproximateLocationNote() {
+    const errorMessage = getElement("error-message");
+    if (!errorMessage) return;
+    errorMessage.textContent = "📍 Approximate location (from your internet connection). ";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "data-status-retry";
+    btn.textContent = "Search for your city";
+    btn.addEventListener("click", () => {
+        const input = getElement("city-input");
+        if (input) {
+            input.focus();
+            if (typeof input.select === "function") input.select();
+        }
+    });
+    errorMessage.appendChild(btn);
+}
+
+/* No GPS/network fix at all: fall back to the IP location. */
+async function useIpLocationFallback() {
+    try {
+        const res = await fetchWithTimeout("/my-location");
+        const data = res.ok ? await res.json() : null;
+        if (data && Number.isFinite(data.lat) && Number.isFinite(data.lon)) {
+            const ok = await getWeatherByCoordinates(
+                data.lat, data.lon, "Approximate location", data.country || "", data.name || "");
+            if (ok) showApproximateLocationNote();
+            return true;
+        }
+    } catch (err) {
+        console.warn("IP location failed:", err);
+    }
+    return false;
+}
+
 function useMyLocation() {
     const errorMessage = getElement("error-message");
     const searchInput = getElement("city-input");
@@ -2357,16 +2520,11 @@ function useMyLocation() {
     const resultsContainer = getElement("location-results");
     const locationBtn = getElement("location-button");
 
-    if (!navigator.geolocation) {
-        if (errorMessage) errorMessage.textContent = "Geolocation is not supported by this browser.";
-        return;
-    }
-
-    if (errorMessage) errorMessage.textContent = "📍 Getting your precise location...";
     if (locationBtn) {
         locationBtn.disabled = true;
         locationBtn.textContent = "📍 Locating...";
     }
+    if (errorMessage) errorMessage.textContent = "📍 Finding your location...";
 
     if (searchInput) searchInput.value = "";
     if (searchHint) searchHint.style.display = "none";
@@ -2375,80 +2533,38 @@ function useMyLocation() {
         resultsContainer.style.display = "none";
     }
     setControlsVisibility(true);
-
-    window._currentWeatherData = null;
+    // The weather on screen stays while we look; it is replaced only once
+    // there is a place to show.
 
     if (typeof mpTrack === "function") {
         mpTrack("use_my_location");
     }
 
-    function getPosition(options) {
-        return new Promise((resolve, reject) => {
-            navigator.geolocation.getCurrentPosition(resolve, reject, options);
-        });
-    }
+    const resetButton = () => {
+        if (locationBtn) {
+            locationBtn.disabled = false;
+            locationBtn.textContent = "📍 Use My Location";
+        }
+    };
 
     (async () => {
         let position = null;
         let lastError = null;
 
-        try {
-            if (errorMessage) errorMessage.textContent = "📍 Finding your location...";
-            position = await getPosition({
-                enableHighAccuracy: false,
-                timeout: 7000,
-                maximumAge: 5 * 60 * 1000
-            });
-        } catch (err) {
-            lastError = err;
+        if (navigator.geolocation) {
+            ({ position, error: lastError } = await locateWithWatch(best => {
+                if (errorMessage) {
+                    errorMessage.textContent =
+                        `📡 Improving accuracy (±${Math.round(best.coords.accuracy)} m)...`;
+                }
+            }));
         }
-
-        if (!position && lastError && lastError.code !== lastError.PERMISSION_DENIED) {
-            try {
-                if (errorMessage) errorMessage.textContent = "📡 Improving accuracy...";
-                position = await getPosition({
-                    enableHighAccuracy: true,
-                    timeout: 12000,
-                    maximumAge: 60 * 1000
-                });
-            } catch (err) {
-                lastError = err;
-            }
-        }
-
-        if (locationBtn) {
-            locationBtn.disabled = false;
-            locationBtn.textContent = "📍 Use My Location";
-        }
+        resetButton();
 
         if (position) {
-            const latitude = position.coords.latitude;
-            const longitude = position.coords.longitude;
-            const accuracy = position.coords.accuracy;
-
-            if (errorMessage) {
-                errorMessage.textContent =
-                    `📍 Located within ~${Math.round(accuracy)}m accuracy. Loading weather...`;
-            }
-
+            const { latitude, longitude, accuracy } = position.coords;
             getWeatherByLocation(latitude, longitude, `Your Location (±${Math.round(accuracy)}m)`);
             return;
-        }
-
-        if (errorMessage) {
-            if (lastError && lastError.code === lastError.PERMISSION_DENIED) {
-                errorMessage.textContent =
-                    "Location permission was denied. Please allow access in your browser settings, or search manually.";
-            } else if (lastError && lastError.code === lastError.TIMEOUT) {
-                errorMessage.textContent =
-                    "Couldn't get an accurate location in time. Try searching for your city instead.";
-            } else if (lastError && lastError.code === lastError.POSITION_UNAVAILABLE) {
-                errorMessage.textContent =
-                    "Your location is unavailable right now. Please search for your city instead.";
-            } else {
-                errorMessage.textContent =
-                    "Couldn't detect your location. Try searching for your city instead.";
-            }
         }
 
         if (typeof mpTrack === "function") {
@@ -2457,6 +2573,12 @@ function useMyLocation() {
                 message: lastError && lastError.message
             });
         }
+
+        // No fix at all: an approximate place beats nothing.
+        if (errorMessage) errorMessage.textContent = "📍 Finding an approximate location...";
+        if (await useIpLocationFallback()) return;
+
+        if (errorMessage) errorMessage.textContent = LOCATION_FAILED_MESSAGE;
     })();
 }
 
@@ -2476,6 +2598,7 @@ function getWeatherByLocation(latitude, longitude, displayName = "Your Location"
 
     return loadWeatherFull(`/weather-full?lat=${latitude}&lon=${longitude}`, {
         keepCurrent,
+        coords: { lat: latitude, lon: longitude },
         loadingMessage: "Loading your local weather...",
         failMessage: "Unable to load your local weather.",
         retry: () => getWeatherByLocation(latitude, longitude, displayName, { keepCurrent: true }),
