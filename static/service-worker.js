@@ -15,7 +15,7 @@
    Bump CACHE_NAME with every release that changes a file below, so phones
    fetch the new files at once (the old cache is deleted on activate).
 ========================================================= */
-const CACHE_NAME = "neckrone8x-weather-v33";
+const CACHE_NAME = "neckrone8x-weather-v34";
 
 // How long to wait for the network before serving the saved page.
 const PAGE_WAIT_MS = 8000;
@@ -32,7 +32,7 @@ const APP_SHELL = [
     "/static/earth.js",
     "/static/mkuu-helper.css?v=2",
     "/static/mkuu-weather-context.js?v=2",
-    "/static/mkuu-helper.js?v=3",
+    "/static/mkuu-helper.js?v=4",
     "/static/icon-192.png",
     "/static/icon-512.png"
 ];

@@ -449,6 +449,20 @@ const I18N = {
     mkuu_err_other:   { en: "Mkuu is having trouble right now. Please try again in a moment.",
                         sw: "Mkuu ana tatizo kwa sasa. Tafadhali jaribu tena baada ya muda mfupi." },
     mkuu_read_story:  { en: "Read full story", sw: "Soma hadithi yote" },
+    // Waits from the Mkuu server ("Retry-After"), in words; the same English as mkuu-helper.js
+    mkuu_wait_few:     { en: "a few seconds", sw: "sekunde chache" },
+    mkuu_wait_seconds: { en: "{n} seconds", sw: "sekunde {n}" },
+    mkuu_wait_minute:  { en: "about 1 minute", sw: "kama dakika 1" },
+    mkuu_wait_minutes: { en: "about {n} minutes", sw: "kama dakika {n}" },
+    mkuu_wait_hour:    { en: "about 1 hour", sw: "kama saa 1" },
+    mkuu_wait_hours:   { en: "about {n} hours", sw: "kama saa {n}" },
+    mkuu_wait_unknown: { en: "a little while", sw: "muda mfupi" },
+    mkuu_rate_minute:  { en: "You are sending messages too fast. Please try again in {wait}.",
+                         sw: "Unatuma ujumbe haraka mno. Tafadhali jaribu tena baada ya {wait}." },
+    mkuu_rate_wait:    { en: "Mkuu is resting for now. Please try again in {wait}.",
+                         sw: "Mkuu anapumzika kwa sasa. Tafadhali jaribu tena baada ya {wait}." },
+    mkuu_rate_day:     { en: "Mkuu has reached its daily limit. Please try again tomorrow after 3 am.",
+                         sw: "Mkuu amefikia kikomo cha leo. Tafadhali jaribu tena kesho baada ya saa 9 usiku." },
     mkuu_story:       { en: "Story", sw: "Hadithi" },
     mkuu_heads_up:    { en: "**Heads up:**", sw: "**Tahadhari:**" },
     mkuu_quake_line:  { en: "a magnitude {mag} earthquake, {place}", sw: "tetemeko la ardhi la ukubwa {mag}, {place}" },
@@ -634,7 +648,11 @@ const MKUU_TEXT_KEYS = {
     message: "mkuu_message", send: "mkuu_send", note: "mkuu_note", welcome: "mkuu_welcome",
     chips: "mkuu_chips", waking: "mkuu_waking", noAnswer: "mkuu_no_answer", empty: "mkuu_empty",
     offline: "mkuu_offline", err429: "mkuu_err_429", err503: "mkuu_err_503",
-    errOther: "mkuu_err_other", readStory: "mkuu_read_story", story: "mkuu_story"
+    errOther: "mkuu_err_other", readStory: "mkuu_read_story", story: "mkuu_story",
+    waitFew: "mkuu_wait_few", waitSeconds: "mkuu_wait_seconds", waitMinute: "mkuu_wait_minute",
+    waitMinutes: "mkuu_wait_minutes", waitHour: "mkuu_wait_hour", waitHours: "mkuu_wait_hours",
+    waitUnknown: "mkuu_wait_unknown", rateMinute: "mkuu_rate_minute", rateWait: "mkuu_rate_wait",
+    rateDay: "mkuu_rate_day"
 };
 window.MkuuHelperText = function (key) {
     const k = MKUU_TEXT_KEYS[key];

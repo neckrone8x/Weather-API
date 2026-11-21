@@ -85,6 +85,80 @@
     return t.length <= n ? t : t.slice(0, n).replace(/\s+\S*$/, '') + '…';
   }
 
+  // ───────────── wait times ("Retry-After") in plain words ─────────────
+
+  var MAX_WAIT_S = 86400;   // longer than a day is not a real wait: "a little while"
+  var WAIT_TEXT = {
+    waitFew: 'a few seconds', waitSeconds: '{n} seconds',
+    waitMinute: 'about 1 minute', waitMinutes: 'about {n} minutes',
+    waitHour: 'about 1 hour', waitHours: 'about {n} hours',
+    waitUnknown: 'a little while',
+    rateMinute: 'You are sending messages too fast. Please try again in {wait}.',
+    rateWait: 'Mkuu is resting for now. Please try again in {wait}.',
+    rateDay: 'Mkuu has reached its daily limit. Please try again tomorrow after 3 am.'
+  };
+
+  function fill(template, params) {
+    return String(template).replace(/\{(\w+)\}/g, function (m, k) {
+      return params && params[k] != null ? String(params[k]) : m;
+    });
+  }
+
+  /** Seconds from a Retry-After value (seconds or an HTTP date), a number, or
+   *  text such as "Wait 45580s". null when there is no number in it. */
+  function parseWait(value, now) {
+    if (typeof value === 'number') return isFinite(value) ? value : null;
+    var s = String(value == null ? '' : value).trim();
+    if (!s) return null;
+    if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
+    var m = s.match(/(-?\d+(?:\.\d+)?)\s*(?:s|secs?|seconds?)\b/i);
+    if (m) return Number(m[1]);
+    if (/[a-z]{3},? \d|\d{4}-\d\d-\d\d/i.test(s)) {
+      var at = Date.parse(s);
+      if (isFinite(at)) return (at - (now == null ? Date.now() : now)) / 1000;
+    }
+    return null;
+  }
+
+  /** "a few seconds", "30 seconds", "about 5 minutes", "about 13 hours", or
+   *  "a little while" for anything missing, zero, negative, huge or not a number.
+   *  text(key, english) gives the words in the page's language. */
+  function waitWords(seconds, text) {
+    text = text || function (k, f) { return f; };
+    var w = function (k, n) { return fill(text(k, WAIT_TEXT[k]), { n: n }); };
+    var s = typeof seconds === 'number' ? seconds : NaN;
+    if (!isFinite(s) || s <= 0 || s > MAX_WAIT_S) return w('waitUnknown');
+    s = Math.ceil(s);
+    if (s < 10) return w('waitFew');
+    if (s < 60) return w('waitSeconds', s);
+    var min = Math.ceil(s / 60);
+    if (min < 60) return min === 1 ? w('waitMinute') : w('waitMinutes', min);
+    var h = Math.ceil(s / 3600);
+    return h === 1 ? w('waitHour') : w('waitHours', h);
+  }
+
+  /** What a refused reply says about waiting: { kind: "minute"|"day"|null,
+   *  seconds: number|null, mentioned: true when the reply carries a wait at all }. */
+  function rateInfo(headerValue, body, now) {
+    body = body && typeof body === 'object' ? body : {};
+    var detail = body.detail;
+    var d = detail && typeof detail === 'object' ? detail : {};
+    var words = [d.code, d.reason, d.limit, body.code, body.reason, body.limit, body.error,
+                 typeof detail === 'string' ? detail : '', d.message, body.message]
+      .filter(function (v) { return typeof v === 'string'; }).join(' ').toLowerCase();
+    var kind = /rate_day|daily|per day|a day\b|today/.test(words) ? 'day'
+      : (/rate_minute|per minute|a minute\b|too fast|too many/.test(words) ? 'minute' : null);
+    var sources = [headerValue, d.retry_after, body.retry_after, d.wait, body.wait,
+                   typeof detail === 'string' ? detail : null];
+    var seconds = null, mentioned = false;
+    for (var i = 0; i < sources.length && !mentioned; i++) {
+      if (sources[i] == null || sources[i] === '') continue;
+      var v = parseWait(sources[i], now);
+      if (v !== null || i < sources.length - 1) { mentioned = true; seconds = v; }
+    }
+    return { kind: kind, seconds: seconds, mentioned: mentioned };
+  }
+
   function friendly(status, detail) {
     if ((status === 429 || status === 503) && typeof detail === 'string' && detail && detail.length < 160) return detail;
     if (status === 429) return 'You are sending messages too fast. Please wait a minute.';
@@ -135,7 +209,15 @@
       var list = v ? v.split('|').map(function (c) { return c.trim(); }).filter(Boolean) : [];
       return list.length ? list : chipList;
     }
-    function friendlyText(status, detail) {
+    function friendlyText(status, detail, info) {
+      // A wait from the server (Retry-After, retry_after, "Wait 45580s"): in
+      // plain words, never the raw number.
+      if (info && (status === 429 || status === 503) && (info.mentioned || info.kind === 'day')) {
+        if (info.kind === 'day') return txt('rateDay', WAIT_TEXT.rateDay);
+        var wait = waitWords(info.seconds, txt);
+        var key = info.kind === 'minute' ? 'rateMinute' : 'rateWait';
+        return fill(txt(key, WAIT_TEXT[key]), { wait: wait });
+      }
       if (status === 429) return txt('err429', friendly(status, detail));
       if (status === 503) return txt('err503', friendly(status, detail));
       return txt('errOther', friendly(status, detail));
@@ -381,8 +463,10 @@
         signal: controller ? controller.signal : undefined
       }).then(function (res) {
         if (!res.ok) {
+          var retryAfter = null;
+          try { retryAfter = res.headers && res.headers.get ? res.headers.get('Retry-After') : null; } catch (e) { retryAfter = null; }
           return res.json().catch(function () { return {}; }).then(function (j) {
-            renderText(doc, bubble, friendlyText(res.status, j && j.detail));
+            renderText(doc, bubble, friendlyText(res.status, j && j.detail, rateInfo(retryAfter, j)));
           });
         }
         return readStream(res, bubble, function () { started = true; });
@@ -428,7 +512,8 @@
              sessionId: function () { return sid; }, checkNotice: checkNotice, dot: dot };
   }
 
-  var api = { init: init, sameSite: sameSite, parseSSE: parseSSE, renderText: renderText, shorten: shorten, friendly: friendly };
+  var api = { init: init, sameSite: sameSite, parseSSE: parseSSE, renderText: renderText, shorten: shorten, friendly: friendly,
+              parseWait: parseWait, waitWords: waitWords, rateInfo: rateInfo };
 
   if (typeof module !== 'undefined' && module.exports) { module.exports = api; }
   if (root.document && !root.__MKUU_HELPER_TEST && !root.__mkuuHelperLoaded) {
